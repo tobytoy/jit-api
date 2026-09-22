@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
+  <link rel="stylesheet" href="vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -354,10 +355,36 @@
     <!-- Footer -->
     <footer class="app-footer">
       <span>JIT Protocol Synthesis Framework &copy; 2026. Powered by TypeSafe & Needle.</span>
-      <span>API Gateway: <code>http://127.0.0.1:3005/api/jit</code></span>
+      <span>API Gateway: <code>http://127.0.0.1:3005/api/jit</code> | MCP: <code>http://127.0.0.1:3005/sse</code></span>
     </footer>
   </div>
 
+  <!-- Integrated Web Terminal Drawer (VSCode Style) -->
+  <div class="terminal-drawer" id="terminalDrawer">
+    <div class="terminal-drawer-header" id="terminalHeader">
+      <div class="terminal-title-group">
+        <span class="terminal-icon">💻</span>
+        <span class="terminal-title">Integrated Terminal</span>
+        <span class="pulse-dot"></span>
+        <span class="terminal-shortcut-hint">快捷鍵: Ctrl + `</span>
+      </div>
+      <div class="terminal-quick-actions">
+        <button class="term-action-btn" id="termCmdTestBtn" title="執行單元測試">npm test</button>
+        <button class="term-action-btn" id="termCmdK6Btn" title="執行 k6 壓測">k6 benchmark</button>
+        <button class="term-action-btn" id="termCmdStatusBtn" title="Git 狀態">git status</button>
+        <button class="term-action-btn" id="termCmdClearBtn" title="清空終端機">Clear</button>
+        <button class="term-icon-btn" id="termToggleBtn" title="展開/收合終端機">
+          <span id="termToggleIcon">▼</span>
+        </button>
+      </div>
+    </div>
+    <div class="terminal-drawer-body" id="terminalBody">
+      <div id="terminalContainer" class="terminal-viewport"></div>
+    </div>
+  </div>
+
+  <script src="vendor/xterm/xterm.js"></script>
+  <script src="vendor/xterm/xterm-addon-fit.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

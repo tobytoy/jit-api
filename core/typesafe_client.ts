@@ -27,7 +27,7 @@ export class TypeSafeClient {
     this.apiKey = config?.apiKey !== undefined ? config.apiKey : (process.env.TYPESAFE_API_KEY || '');
     this.baseUrl = config?.baseUrl || 'https://api.typesafe.ai/v1/systemone';
     this.defaultModel = config?.model || 'jev-latest';
-    this.timeoutMs = config?.timeoutMs || 10000;
+    this.timeoutMs = config?.timeoutMs || 30000;
 
     if (!this.apiKey) {
       console.warn('[TypeSafeClient] Notice: TYPESAFE_API_KEY is not set. Local fallback (e.g. Needle) will be used.');

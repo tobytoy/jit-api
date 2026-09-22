@@ -14,8 +14,9 @@
 
 import express from 'express';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
-import { JITEngine, JITRequestContext, MDLoader, BenchmarkRunner, MCPAdapter } from '../../core/index.js';
+import { JITEngine, JITRequestContext, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer } from '../../core/index.js';
 
 const app = express();
 app.use(express.json());
@@ -170,12 +171,16 @@ app.get('/api/contracts', (req, res) => {
   }
 });
 
-// 啟動伺服器
+// 建立 HTTP 伺服器並掛載 Web Terminal (WebSocket)
 const PORT = process.env.PORT || 3005;
-app.listen(PORT, () => {
+const server = http.createServer(app);
+new TerminalServer(server, '/ws/terminal');
+
+server.listen(PORT, () => {
   console.log('='.repeat(70));
   console.log(`🚀 JIT Protocol Synthesis Studio 啟動成功！`);
   console.log(`   - 🌐 前端觀測與壓測儀表板: http://localhost:${PORT}`);
+  console.log(`   - 💻 整合 Web 終端 (PTY):  http://localhost:${PORT} (底部抽屜)`);
   console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
   console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
   console.log(`   - 📊 Grafana k6 壓測 API:  http://localhost:${PORT}/api/bench/k6`);

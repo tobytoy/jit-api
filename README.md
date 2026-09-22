@@ -93,6 +93,7 @@ jit-api/
 * ⚡ **Grafana k6 一鍵壓力測試**：自訂虛擬用戶並發與秒數，實測突破 1,300+ RPS 與 0.47ms 極低延遲。
 * 📝 **Markdown API 規格中心**：在線瀏覽/編輯 `specs/*.api.md`，一鍵即時熱加載（Hot-Reload）。
 * 📦 **凍結合約代碼檢視**：即時預覽自動生成的 TypeScript (Zod)、Python (Pydantic)、Protobuf (.proto)。
+* 💻 **VS Code 風格 Web 終端**：網頁底部內建互動式 PTY Terminal（支援 zsh/bash、快捷鍵 `Ctrl + \``），即時與 Agent 對話、跑測試或執行 CLI，完全不需離開瀏覽器！
 
 ### 2. 環境變數設定 (`.env`)
 在專案根目錄確認 `.env`（若無金鑰將自動降級使用本地端側小模型 Needle）：

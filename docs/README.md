@@ -36,6 +36,7 @@
 * **Web 儀表板一鍵壓測**：VUs 並發與秒數自訂，即時產生 RPS 與延遲階梯分佈。
 * **CLI 終端機壓測**：內建綠色免安裝版 `bin/k6` 調用方式。
 * **效能躍升解析**：實測 Phase 3 達成中位數 **0.47ms** 延遲、**1,300+ RPS** 與 **0ms AI 運算延遲**。
+* **VS Code 風格 Web 終端 (Integrated Terminal)**：網頁底部內建即時 PTY 終端機（支援 zsh/bash、快捷鍵 `Ctrl + \``、快捷指令），實現「上方看網頁、下方直接呼叫 Agent / 跑指令」的一體化極致體驗！
 
 ### 3. 🖥️ [Server 端整合指南 (底層程式碼)](./server_guide.md)
 * 如何在 TypeScript (Express) 與 Python (FastAPI) 中直接引入 `JITEngine`。

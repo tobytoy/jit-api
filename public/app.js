@@ -89,6 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial Data Load
   refreshAll();
   loadDefaultPayload();
+  setupWebTerminal();
 });
 
 // ================= Tab Navigation =================
@@ -608,5 +609,200 @@ async function loadContractCode(lang) {
     }
   } catch (err) {
     elements.contractCodeView.textContent = `// 讀取錯誤: ${err.message}`;
+  }
+}
+
+// ================= Integrated Web Terminal (VSCode Style) =================
+let term = null;
+let fitAddon = null;
+let termWs = null;
+let isTerminalCollapsed = false;
+
+function setupWebTerminal() {
+  if (typeof window.Terminal === 'undefined') {
+    console.warn('[Web Terminal] xterm.js not loaded, terminal disabled.');
+    return;
+  }
+
+  term = new window.Terminal({
+    cursorBlink: true,
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+    fontSize: 13,
+    lineHeight: 1.25,
+    convertEol: true,
+    theme: {
+      background: '#070a13',
+      foreground: '#f8fafc',
+      cursor: '#6366f1',
+      cursorAccent: '#ffffff',
+      selectionBackground: 'rgba(99, 102, 241, 0.35)',
+      black: '#0f172a',
+      red: '#f43f5e',
+      green: '#10b981',
+      yellow: '#f59e0b',
+      blue: '#38bdf8',
+      magenta: '#c084fc',
+      cyan: '#2dd4bf',
+      white: '#f1f5f9',
+      brightBlack: '#475569',
+      brightRed: '#fb7185',
+      brightGreen: '#34d399',
+      brightYellow: '#fbbf24',
+      brightBlue: '#60a5fa',
+      brightMagenta: '#d8b4fe',
+      brightCyan: '#5eead4',
+      brightWhite: '#ffffff',
+    },
+  });
+
+  if (window.FitAddon && window.FitAddon.FitAddon) {
+    fitAddon = new window.FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+  }
+
+  const container = document.getElementById('terminalContainer');
+  if (container) {
+    term.open(container);
+    if (fitAddon) {
+      setTimeout(() => fitAddon.fit(), 150);
+    }
+  }
+
+  connectTerminalWebSocket();
+
+  // Resize handler
+  window.addEventListener('resize', () => {
+    if (fitAddon && !isTerminalCollapsed) {
+      fitAddon.fit();
+      sendResize();
+    }
+  });
+
+  // Keyboard shortcut: Ctrl + ` (backtick) or Cmd + `
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === '`' || e.key === '~')) {
+      e.preventDefault();
+      toggleTerminal();
+    }
+  });
+
+  // Header click to toggle
+  document.getElementById('terminalHeader')?.addEventListener('click', (e) => {
+    if (!e.target.closest('.terminal-quick-actions')) {
+      toggleTerminal();
+    }
+  });
+
+  document.getElementById('termToggleBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTerminal();
+  });
+
+  // Quick Action Buttons
+  document.getElementById('termCmdTestBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    ensureTerminalOpen();
+    sendTerminalInput('npm test\n');
+  });
+
+  document.getElementById('termCmdK6Btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    ensureTerminalOpen();
+    sendTerminalInput('./bin/k6 run benchmark/k6_stress_test.js\n');
+  });
+
+  document.getElementById('termCmdStatusBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    ensureTerminalOpen();
+    sendTerminalInput('git status\n');
+  });
+
+  document.getElementById('termCmdClearBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    term.clear();
+    sendTerminalInput('clear\n');
+  });
+}
+
+function connectTerminalWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${location.host}/ws/terminal`;
+
+  try {
+    termWs = new WebSocket(wsUrl);
+  } catch (err) {
+    term.write(`\r\n\x1b[31m[WebSocket 連線建立失敗: ${err.message}]\x1b[0m\r\n`);
+    return;
+  }
+
+  termWs.onopen = () => {
+    if (fitAddon) {
+      setTimeout(() => {
+        fitAddon.fit();
+        sendResize();
+      }, 200);
+    }
+  };
+
+  termWs.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'output') {
+        term.write(msg.data);
+      }
+    } catch {
+      term.write(event.data);
+    }
+  };
+
+  termWs.onclose = () => {
+    term.write('\r\n\x1b[33m[Web Terminal 已中斷連線，5 秒後自動嘗試重新連接...]\x1b[0m\r\n');
+    setTimeout(connectTerminalWebSocket, 5000);
+  };
+
+  term.onData((data) => {
+    if (termWs && termWs.readyState === WebSocket.OPEN) {
+      termWs.send(JSON.stringify({ type: 'input', data }));
+    }
+  });
+}
+
+function sendTerminalInput(cmd) {
+  if (termWs && termWs.readyState === WebSocket.OPEN) {
+    termWs.send(JSON.stringify({ type: 'input', data: cmd }));
+    term.focus();
+  }
+}
+
+function sendResize() {
+  if (term && termWs && termWs.readyState === WebSocket.OPEN) {
+    termWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+  }
+}
+
+function toggleTerminal() {
+  const drawer = document.getElementById('terminalDrawer');
+  const icon = document.getElementById('termToggleIcon');
+  isTerminalCollapsed = !isTerminalCollapsed;
+
+  if (isTerminalCollapsed) {
+    drawer.classList.add('collapsed');
+    icon.textContent = '▲';
+  } else {
+    drawer.classList.remove('collapsed');
+    icon.textContent = '▼';
+    if (fitAddon) {
+      setTimeout(() => {
+        fitAddon.fit();
+        sendResize();
+        term.focus();
+      }, 250);
+    }
+  }
+}
+
+function ensureTerminalOpen() {
+  if (isTerminalCollapsed) {
+    toggleTerminal();
   }
 }
