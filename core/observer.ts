@@ -22,6 +22,7 @@ interface RouteObservationState {
 export class SchemaObserver {
   private options: Required<ObserverOptions>;
   private states: Map<string, RouteObservationState> = new Map();
+  private routeVersions: Map<string, number> = new Map();
 
   constructor(options?: ObserverOptions) {
     this.options = {
@@ -55,6 +56,10 @@ export class SchemaObserver {
       if (type === 'object' && val && typeof val === 'object') {
         return `${key}:{${this.generateSignature(val as Record<string, unknown>)}}`;
       }
+      if (type === 'array' && Array.isArray(val)) {
+        const itemType = val.length > 0 ? this.inferType(val[0]) : 'unknown';
+        return `${key}:array[${itemType}]`;
+      }
       return `${key}:${type}`;
     });
     return parts.join(';');
@@ -74,8 +79,8 @@ export class SchemaObserver {
         required: true,
       };
 
-      if (fieldType === 'array' && Array.isArray(val) && val.length > 0) {
-        field.itemType = this.inferType(val[0]);
+      if (fieldType === 'array' && Array.isArray(val)) {
+        field.itemType = val.length > 0 ? this.inferType(val[0]) : 'string';
       } else if (fieldType === 'object' && val && typeof val === 'object') {
         const nestedProps: Record<string, IRField> = {};
         for (const [subKey, subVal] of Object.entries(val as Record<string, unknown>)) {
@@ -161,7 +166,7 @@ export class SchemaObserver {
     // Check if stability criteria is satisfied
     if (metrics.isStable && !state.isFrozen) {
       state.isFrozen = true;
-      const schema = this.extractIRSchema(route, payload);
+      const schema = this.extractIRSchema(route, payload, this.getRouteVersion(route));
       state.frozenSchema = schema;
 
       // Invoke freeze callback (triggers compiler/codegen)
@@ -228,6 +233,12 @@ export class SchemaObserver {
    * Reset route state (used for schema drift v2 evolution)
    */
   resetRoute(route: string): void {
+    const nextVersion = this.getRouteVersion(route) + 1;
+    this.routeVersions.set(route, nextVersion);
     this.states.delete(route);
+  }
+
+  getRouteVersion(route: string): number {
+    return this.routeVersions.get(route) || 1;
   }
 }

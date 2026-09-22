@@ -103,6 +103,7 @@ export interface JITRequestContext {
   aiLatencyMs: number;
   intentConfidence?: number;
   isFallback?: boolean;
+  engineUsed?: 'typesafe' | 'needle';
 }
 
 export interface JITExecutionResult<T = any> {

@@ -1,6 +1,7 @@
 import { z, ZodObject, ZodRawShape } from 'zod';
 import { CodegenEngine, CodegenResult } from '../compiler/codegen_engine.js';
 import { FallbackHandler } from './fallback_handler.js';
+import { NeedleClient, NeedleClientConfig } from './needle_client.js';
 import { SchemaObserver } from './observer.js';
 import {
   IRField,
@@ -15,6 +16,10 @@ import { TypeSafeRouter } from './typesafe_router.js';
 
 export interface JITEngineOptions {
   client?: TypeSafeClient;
+  needleClient?: NeedleClient;
+  needleOptions?: NeedleClientConfig;
+  fallbackToNeedleOnNoKey?: boolean;
+  forceNeedle?: boolean;
   stabilityThreshold?: number; // default 5
   confidenceThreshold?: number; // default 0.85
   codegenOutputDir?: string;
@@ -34,7 +39,13 @@ export class JITEngine {
 
   constructor(options?: JITEngineOptions) {
     const client = options?.client || new TypeSafeClient();
-    this.router = new TypeSafeRouter({ client });
+    this.router = new TypeSafeRouter({
+      client,
+      needleClient: options?.needleClient,
+      needleOptions: options?.needleOptions,
+      fallbackToNeedleOnNoKey: options?.fallbackToNeedleOnNoKey,
+      forceNeedle: options?.forceNeedle,
+    });
     this.codegen = new CodegenEngine(options?.codegenOutputDir);
 
     this.observer = new SchemaObserver({
@@ -91,7 +102,11 @@ export class JITEngine {
           zType = z.boolean();
           break;
         case 'array':
-          zType = z.array(field.itemType === 'number' ? z.number() : z.string());
+          let itemZod: z.ZodTypeAny = z.string();
+          if (field.itemType === 'number') itemZod = z.number();
+          else if (field.itemType === 'boolean') itemZod = z.boolean();
+          else if (field.itemType === 'object') itemZod = z.record(z.unknown());
+          zType = z.array(itemZod);
           break;
         case 'object':
           zType = z.record(z.unknown());
@@ -138,13 +153,15 @@ export class JITEngine {
     explicitRoute?: string
   ): Promise<JITExecutionResult> {
     const startTime = Date.now();
+    const targetRoute =
+      explicitRoute || (typeof payload.route === 'string' ? (payload.route as string) : undefined);
 
     // Check if target route is already frozen in Phase 3
-    const isTargetFrozen = explicitRoute && this.observer.isFrozen(explicitRoute);
+    const isTargetFrozen = targetRoute && this.observer.isFrozen(targetRoute);
 
-    if (isTargetFrozen && explicitRoute) {
-      const validator = this.fastPathValidators.get(explicitRoute);
-      const routeDef = this.router.getRoute(explicitRoute);
+    if (isTargetFrozen && targetRoute) {
+      const validator = this.fastPathValidators.get(targetRoute);
+      const routeDef = this.router.getRoute(targetRoute);
 
       if (validator && routeDef) {
         // Run static fast-path validation (0ms AI latency)
@@ -152,9 +169,8 @@ export class JITEngine {
 
         if (validation.success) {
           // Fast-path execution
-          const execStart = Date.now();
           const ctx: JITRequestContext = {
-            route: explicitRoute,
+            route: targetRoute,
             phase: 'phase3_frozen',
             executionTimeMs: Date.now() - startTime,
             aiLatencyMs: 0, // 0 AI latency!
@@ -172,7 +188,7 @@ export class JITEngine {
           // Schema drift detected! Validation failed on frozen route.
           // Trigger FallbackHandler: downgrade back to Phase 1 and start v2 observation
           const fallbackRes = await this.fallback.handleFallback(
-            explicitRoute,
+            targetRoute,
             validation.error || 'Static validation failed',
             payload
           );
@@ -187,7 +203,7 @@ export class JITEngine {
     }
 
     // Phase 1: Dynamic Semantic Routing via TypeSafe Jev
-    const res = await this.router.handle(payload, explicitRoute);
+    const res = await this.router.handle(payload, targetRoute);
 
     // Phase 2: Observation & Stability tracking
     const obs = await this.observer.observe(

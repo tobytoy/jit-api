@@ -24,14 +24,18 @@ export class TypeSafeClient {
   private timeoutMs: number;
 
   constructor(config?: TypeSafeClientConfig) {
-    this.apiKey = config?.apiKey || process.env.TYPESAFE_API_KEY || '';
+    this.apiKey = config?.apiKey !== undefined ? config.apiKey : (process.env.TYPESAFE_API_KEY || '');
     this.baseUrl = config?.baseUrl || 'https://api.typesafe.ai/v1/systemone';
     this.defaultModel = config?.model || 'jev-latest';
     this.timeoutMs = config?.timeoutMs || 10000;
 
     if (!this.apiKey) {
-      console.warn('[TypeSafeClient] Warning: TYPESAFE_API_KEY is not set. Dynamic semantic routing may fail.');
+      console.warn('[TypeSafeClient] Notice: TYPESAFE_API_KEY is not set. Local fallback (e.g. Needle) will be used.');
     }
+  }
+
+  public hasApiKey(): boolean {
+    return Boolean(this.apiKey && this.apiKey.trim().length > 0);
   }
 
   static choice(criteria: Record<string, string>): JevChoiceQuestion {

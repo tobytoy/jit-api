@@ -4,10 +4,12 @@
   "description": "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch index.ts",
     "demo": "tsx examples/demo_lifecycle.ts",
+    "demo:needle": "tsx examples/demo_needle_fallback.ts",
     "test": "vitest run"
   },
   "keywords": [

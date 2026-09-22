@@ -15,7 +15,10 @@ export class PythonBlock {
         pyType = 'bool';
         break;
       case 'array':
-        const itemPy = field.itemType === 'number' ? 'float' : 'str';
+        let itemPy = 'str';
+        if (field.itemType === 'number') itemPy = 'float';
+        else if (field.itemType === 'boolean') itemPy = 'bool';
+        else if (field.itemType === 'object') itemPy = 'dict[str, Any]';
         pyType = `list[${itemPy}]`;
         break;
       case 'object':

@@ -11,7 +11,10 @@ export class GolangBlock {
       case 'boolean':
         return 'bool';
       case 'array':
-        return field.itemType === 'number' ? '[]float64' : '[]string';
+        if (field.itemType === 'number') return '[]float64';
+        if (field.itemType === 'boolean') return '[]bool';
+        if (field.itemType === 'object') return '[]map[string]interface{}';
+        return '[]string';
       case 'object':
         return 'map[string]interface{}';
       case 'enum':
@@ -31,7 +34,9 @@ export class GolangBlock {
       case 'boolean':
         return 'bool';
       case 'array':
-        const itemType = field.itemType === 'number' ? 'double' : 'string';
+        let itemType = 'string';
+        if (field.itemType === 'number') itemType = 'double';
+        else if (field.itemType === 'boolean') itemType = 'bool';
         return `repeated ${itemType}`;
       case 'object':
         return 'string'; // Serialized or map

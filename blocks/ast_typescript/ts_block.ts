@@ -15,7 +15,10 @@ export class TypeScriptBlock {
         zodType = 'z.boolean()';
         break;
       case 'array':
-        const itemZod = field.itemType === 'number' ? 'z.number()' : 'z.string()';
+        let itemZod = 'z.string()';
+        if (field.itemType === 'number') itemZod = 'z.number()';
+        else if (field.itemType === 'boolean') itemZod = 'z.boolean()';
+        else if (field.itemType === 'object') itemZod = 'z.record(z.unknown())';
         zodType = `z.array(${itemZod})`;
         break;
       case 'object':

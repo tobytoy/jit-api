@@ -1,3 +1,4 @@
+import { NeedleClient, NeedleClientConfig } from './needle_client.js';
 import { TypeSafeClient } from './typesafe_client.js';
 import {
   JevChoiceAnswer,
@@ -9,18 +10,28 @@ import {
 
 export interface TypeSafeRouterOptions {
   client?: TypeSafeClient;
+  needleClient?: NeedleClient;
+  needleOptions?: NeedleClientConfig;
+  fallbackToNeedleOnNoKey?: boolean;
+  forceNeedle?: boolean;
   securityThreshold?: number; // Noul score above this is rejected (default 0.8)
   confidenceThreshold?: number; // Choice confidence below this triggers warning (default 0.7)
 }
 
 export class TypeSafeRouter {
   private client: TypeSafeClient;
+  private needleClient: NeedleClient;
+  private fallbackToNeedleOnNoKey: boolean;
+  private forceNeedle: boolean;
   private routes: Map<string, RouteDefinition> = new Map();
   private securityThreshold: number;
   private confidenceThreshold: number;
 
   constructor(options?: TypeSafeRouterOptions) {
     this.client = options?.client || new TypeSafeClient();
+    this.needleClient = options?.needleClient || new NeedleClient(options?.needleOptions);
+    this.fallbackToNeedleOnNoKey = options?.fallbackToNeedleOnNoKey ?? true;
+    this.forceNeedle = options?.forceNeedle ?? false;
     this.securityThreshold = options?.securityThreshold ?? 0.8;
     this.confidenceThreshold = options?.confidenceThreshold ?? 0.7;
   }
@@ -60,6 +71,38 @@ export class TypeSafeRouter {
 
     if (this.routes.size === 0) {
       throw new Error('[TypeSafeRouter] No routes registered.');
+    }
+
+    // Step 0: Check if Needle local fallback should be activated
+    const useNeedle = this.forceNeedle || (!this.client.hasApiKey() && this.fallbackToNeedleOnNoKey);
+
+    if (useNeedle) {
+      const allRoutes = Array.from(this.routes.values());
+      const needleRes = await this.needleClient.handle(rawInput, allRoutes, preferredRoute);
+
+      const routeDef = this.routes.get(needleRes.route);
+      if (!routeDef) {
+        throw new Error(`[TypeSafeRouter] Matched route '${needleRes.route}' not found in registry.`);
+      }
+
+      const executionTimeMs = Date.now() - startTime;
+      const context: JITRequestContext = {
+        route: needleRes.route,
+        phase: 'phase1_dynamic',
+        executionTimeMs,
+        aiLatencyMs: needleRes.latencyMs,
+        intentConfidence: needleRes.confidence,
+        engineUsed: 'needle',
+      };
+
+      const result = await routeDef.handler(needleRes.normalizedPayload, context);
+
+      return {
+        route: needleRes.route,
+        normalizedPayload: needleRes.normalizedPayload,
+        result,
+        context,
+      };
     }
 
     // Step 1: Prepare questions for TypeSafe Jev
@@ -144,6 +187,7 @@ export class TypeSafeRouter {
       executionTimeMs,
       aiLatencyMs: latencyMs,
       intentConfidence,
+      engineUsed: 'typesafe',
     };
 
     // 7. Invoke handler

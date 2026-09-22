@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './typesafe_client.js';
+export * from './needle_client.js';
 export * from './typesafe_router.js';
 export * from './observer.js';
 export * from './fallback_handler.js';

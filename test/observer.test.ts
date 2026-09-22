@@ -57,4 +57,39 @@ describe('SchemaObserver', () => {
     await observer.observe(route, { a: 'not-a-number' }, 1.0);
     expect(observer.getMetrics(route).consecutiveMatches).toBe(1);
   });
+
+  it('should reset consecutive count on array element type mismatch', async () => {
+    const observer = new SchemaObserver({ stabilityThreshold: 2 });
+    const route = 'array_route';
+
+    await observer.observe(route, { tags: [1, 2, 3] }, 1.0);
+    expect(observer.getMetrics(route).consecutiveMatches).toBe(1);
+
+    // Array element type changed from number to string
+    await observer.observe(route, { tags: ['a', 'b', 'c'] }, 1.0);
+    expect(observer.getMetrics(route).consecutiveMatches).toBe(1);
+  });
+
+  it('should increment route version when resetRoute is called', async () => {
+    let capturedSchema: IRSchema | null = null;
+    const observer = new SchemaObserver({
+      stabilityThreshold: 1,
+      onFreeze: (s) => {
+        capturedSchema = s;
+      },
+    });
+    const route = 'versioned_route';
+
+    expect(observer.getRouteVersion(route)).toBe(1);
+    await observer.observe(route, { x: 1 });
+    expect(capturedSchema!.version).toBe(1);
+
+    // Reset route for v2 evolution
+    observer.resetRoute(route);
+    expect(observer.getRouteVersion(route)).toBe(2);
+    expect(observer.isFrozen(route)).toBe(false);
+
+    await observer.observe(route, { x: 'new_string' });
+    expect(capturedSchema!.version).toBe(2);
+  });
 });
