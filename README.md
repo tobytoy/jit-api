@@ -22,11 +22,18 @@
 ### 方式 A：NPX 一鍵執行（推薦，隨處可用、零污染）
 在任何專案目錄下：
 ```bash
-# 初始化 specs/ 規格目錄與範例
+# 1. 初始化 specs/ 規格目錄與範例
 npx jit-api init
 
-# 啟動 Web 控制台與 JIT 動態合成伺服器 (http://localhost:3005)
-npx jit-api
+# 2. 啟動開發模式 (含 Web 控制台、Terminal、動態熱重載，Port 3005)
+npx jit-api dev
+
+# 3. 啟動生產模式 (高效純 API Gateway、安全防護、僅加載 Stage: prod，Port 3000)
+npx jit-api start
+
+# 4. 發布規格快照版本 / 線上快速回滾降版
+npx jit-api release 1.0.0 "初次生產穩定發布"
+npx jit-api rollback 1.0.0
 ```
 
 ### 方式 B：Docker 一鍵運行（針對完全不想裝 Node/Python 的人）
@@ -159,7 +166,7 @@ npm run demo:py
 
 ### 4. 執行自動化測試
 ```bash
-# 執行 TypeScript 測試 (Vitest, 17/17 tests passing)
+# 執行 TypeScript 測試 (Vitest, 22/22 tests passing)
 npm test
 
 # 執行 Python 測試 (Pytest, conda toby 環境, 11/11 tests passing)

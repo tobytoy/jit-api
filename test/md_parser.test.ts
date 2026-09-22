@@ -87,4 +87,106 @@ return {
     const isRegistered = engine.getRoutes().some((r) => r.route === 'create_order');
     expect(isRegistered).toBe(true);
   });
+
+  it('should parse Version, Stage, and explicit ## Sample block', () => {
+    const mdWithSample = `
+# API: user_checkout
+Version: 2.1.0
+Stage: prod
+> 結帳測試 API
+
+## Intent
+User wants to checkout cart
+
+## Fields
+- cartId: string (購物車 ID)
+- amount: number (總額)
+
+## Sample
+- Semantic: 我要結帳購物車 CART-7788，金額 5000 元
+- Payload:
+\`\`\`json
+{
+  "cartId": "CART-7788",
+  "amount": 5000
+}
+\`\`\`
+
+## Mock
+\`\`\`json
+{ "status": "CHECKOUT_SUCCESS" }
+\`\`\`
+    `.trim();
+
+    const spec = MDParser.parse(mdWithSample);
+    expect(spec.version).toBe('2.1.0');
+    expect(spec.stage).toBe('prod');
+    expect(spec.sampleSemantic).toBe('我要結帳購物車 CART-7788，金額 5000 元');
+    expect(spec.samplePayload).toEqual({ cartId: 'CART-7788', amount: 5000 });
+
+    const routeDef = MDParser.toRouteDefinition(spec);
+    expect(routeDef.version).toBe('2.1.0');
+    expect(routeDef.stage).toBe('prod');
+    expect(routeDef.samplePayload).toEqual({ cartId: 'CART-7788', amount: 5000 });
+  });
+
+  it('should generate smart fallback sample when ## Sample block is omitted', () => {
+    const mdWithoutSample = `
+# API: send_notification
+> 發送推播通知
+
+## Intent
+User wants to send push notification
+
+## Fields
+- userId: string (用戶識別碼)
+- priority: enum (等級)
+  - HIGH: 高優先級
+  - LOW: 低優先級
+- isUrgent: boolean (是否緊急)
+- retryCount: number (重試次數)
+    `.trim();
+
+    const spec = MDParser.parse(mdWithoutSample);
+    expect(spec.version).toBe('1.0.0');
+    expect(spec.stage).toBe('dev'); // default is dev
+    expect(spec.samplePayload).toBeDefined();
+    expect(spec.samplePayload?.userId).toContain('USERID');
+    expect(spec.samplePayload?.priority).toBe('HIGH');
+    expect(spec.samplePayload?.isUrgent).toBe(true);
+    expect(spec.samplePayload?.retryCount).toBeDefined();
+  });
+
+  it('should support stage filtering, snapshot release, and rollback', () => {
+    const engine = new JITEngine();
+    const loader = new MDLoader('specs');
+
+    // Test stage filtering
+    const allSpecs = loader.listSpecs('all');
+    expect(allSpecs.length).toBeGreaterThanOrEqual(2);
+
+    // Snapshot release
+    const testVer = 'v9.9.9';
+    const release = loader.snapshotRelease(testVer, 'Test release');
+    expect(release.version).toBe(testVer);
+    expect(release.specsCount).toBeGreaterThanOrEqual(2);
+
+    const releases = loader.listReleases();
+    expect(releases.some((r) => r.version === testVer)).toBe(true);
+
+    // Rollback test
+    const rollbackResult = loader.rollback(testVer, engine);
+    expect(rollbackResult.success).toBe(true);
+    expect(rollbackResult.restoredCount).toBeGreaterThanOrEqual(2);
+
+    // Clean up test release dir
+    import('fs').then((fs) => {
+      import('path').then((path) => {
+        const testDir = path.resolve('.jit', 'releases', testVer);
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      });
+    });
+  });
 });

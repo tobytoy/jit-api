@@ -1,0 +1,18 @@
+{
+  "version": "v1.0.0",
+  "releasedAt": "2026-09-22T16:06:22.034Z",
+  "specsCount": 2,
+  "notes": "Initial stable release",
+  "specs": [
+    {
+      "route": "create_order",
+      "version": "1.0.0",
+      "filename": "create_order.api.md"
+    },
+    {
+      "route": "process_refund",
+      "version": "1.0.0",
+      "filename": "process_refund.api.md"
+    }
+  ]
+}

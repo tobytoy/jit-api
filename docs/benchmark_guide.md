@@ -28,7 +28,10 @@ JIT 協定合成的核心價值在於**「開發期享受 AI 彈性，上線期�
    ```
 2. 瀏覽器開啟：`http://localhost:3005`
 3. 切換至 **「⚡ Grafana k6 壓力測試」** 分頁：
-   - **選擇測試目標**：
+   - **選擇測試目標端點 (Target API Route)**：
+     - 下拉選單自動列出所有掛載之 API（如 `create_order`、`process_refund`、`date_converter`）。
+     - 系統將**自動動態注入該端點在 `## Sample` 定義的真實業務測試資料**，徹底告別寫死電商假資料。
+   - **選擇測試目標模式 (Scenario)**：
      - `Phase 3: 傳統極速期 (Fast-Path)`：測試凍結後的微秒級極限性能。
      - `Phase 1: 語意熱啟動期 (Dynamic)`：測試動態推論承載力。
    - **調整虛擬用戶 (VUs)**：預設 15 VUs（可拉動滑桿至 5 ~ 50 VUs）。
@@ -50,13 +53,17 @@ JIT 協定合成的核心價值在於**「開發期享受 AI 彈性，上線期�
 ./bin/k6 run benchmark/k6_stress_test.js
 ```
 
-### 自訂並發、秒數與目標模式
+### 自訂目標端點、動態測試資料與並發秒數
 ```bash
-# 測試 Phase 3 極速模式：20 VUs、持續 10 秒
-K6_MODE=phase3 K6_VUS=20 K6_DURATION=10s ./bin/k6 run benchmark/k6_stress_test.js
+# 對指定路由 process_refund 進行壓測
+K6_TARGET_ROUTE=process_refund \
+K6_MODE=phase3 K6_VUS=20 K6_DURATION=10s \
+./bin/k6 run benchmark/k6_stress_test.js
 
-# 測試 Phase 1 動態模式：5 VUs、持續 5 秒
-K6_MODE=phase1 K6_VUS=5 K6_DURATION=5s ./bin/k6 run benchmark/k6_stress_test.js
+# 傳入自訂測試 Payload
+K6_SAMPLE_PAYLOAD='{"orderId":"ORD-999","refundAmount":5000,"priority":"URGENT"}' \
+K6_MODE=phase3 K6_VUS=15 K6_DURATION=5s \
+./bin/k6 run benchmark/k6_stress_test.js
 ```
 
 ### 匯出 JSON 統計報告

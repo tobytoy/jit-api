@@ -16,6 +16,9 @@ export interface BenchmarkOptions {
   mode?: 'phase1' | 'phase3';
   vus?: number;
   duration?: string; // e.g. "5s", "10s"
+  targetRoute?: string;
+  samplePayload?: Record<string, any>;
+  sampleSemantic?: string;
 }
 
 export interface BenchmarkMetrics {
@@ -71,6 +74,9 @@ export class BenchmarkRunner {
       K6_MODE: mode,
       K6_VUS: String(vus),
       K6_DURATION: duration,
+      K6_TARGET_ROUTE: options.targetRoute || '',
+      K6_SAMPLE_PAYLOAD: options.samplePayload ? JSON.stringify(options.samplePayload) : '',
+      K6_SAMPLE_SEMANTIC: options.sampleSemantic || '',
     };
 
     try {
@@ -118,7 +124,7 @@ export class BenchmarkRunner {
     } catch (err: any) {
       console.warn('[BenchmarkRunner] k6 execution failed or timed out:', err.message);
       // Fallback in-process load test if k6 execution fails
-      return this.runInProcess(url, mode, vus, durationSeconds);
+      return this.runInProcess(url, mode, vus, durationSeconds, options);
     }
   }
 
@@ -129,12 +135,27 @@ export class BenchmarkRunner {
     url: string,
     mode: 'phase1' | 'phase3',
     vus: number,
-    durationSec: number
+    durationSec: number,
+    options: BenchmarkOptions = {}
   ): Promise<BenchmarkMetrics> {
-    const payload =
-      mode === 'phase1'
-        ? { message: '我想買一台相機，刷卡，42000元', item: '相機', amount: 42000 }
-        : { route: 'create_order', item: '耳機', amount: 2500, paymentMethod: 'LINE_PAY' };
+    let payload: any;
+    if (mode === 'phase1') {
+      if (options.sampleSemantic) {
+        payload = { message: options.sampleSemantic, ...(options.samplePayload || {}) };
+      } else if (options.samplePayload) {
+        payload = options.samplePayload;
+      } else {
+        payload = { message: '我想買一台相機，刷卡，42000元', item: '相機', amount: 42000 };
+      }
+    } else {
+      if (options.samplePayload) {
+        payload = options.targetRoute
+          ? { route: options.targetRoute, ...options.samplePayload }
+          : options.samplePayload;
+      } else {
+        payload = { route: options.targetRoute || 'create_order', item: '耳機', amount: 2500, paymentMethod: 'LINE_PAY' };
+      }
+    }
 
     const latencies: number[] = [];
     let successes = 0;

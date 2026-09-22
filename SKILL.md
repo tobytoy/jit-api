@@ -72,6 +72,8 @@ AI Agent 在擴充程式碼生成支援時，**嚴禁憑空捏造未經驗證的
 
 ```markdown
 # API: create_order
+Version: 1.0.0
+Stage: prod
 > 處理使用者下單與訂單成立
 
 ## Intent
@@ -84,8 +86,19 @@ User wants to buy, purchase, checkout or order items and products
   - CREDIT_CARD: 信用卡
   - LINE_PAY: 行動支付
 
+## Sample
+- Semantic: 我想訂購一台頂配筆電，刷信用卡，金額是 89000 元
+- Payload:
+```json
+{
+  "item": "MacBook Pro M4 Max",
+  "amount": 89000,
+  "paymentMethod": "CREDIT_CARD"
+}
+```
+
 ## Logic
-\`\`\`javascript
+```javascript
 return {
   order_id: "ORD-" + Math.floor(Math.random() * 900000 + 100000),
   status: "CONFIRMED",
@@ -93,19 +106,32 @@ return {
   amount: Number(payload.amount || 0),
   paymentMethod: payload.paymentMethod
 };
-\`\`\`
+```
 ```
 
+- **規格要點**：
+  - `Version: 1.0.0`：宣告規格版號。
+  - `Stage: dev | prod`：未成熟 API 標記 `Stage: dev`，只在開發模式加載；正式 API 標記 `Stage: prod`。
+  - `## Sample`：務必提供語意與 JSON 範例，供前端控制台與 k6 壓測引擎動態注入測試。若未填寫，系統將自動從 `## Fields` 進行智慧推導。
 - 伺服器與 `MDLoader` 會自動動態掃描 `specs/` 目錄並即時掛載。
-- 前端 Web 儀表板支援在線編輯與一鍵「⚡ 即時熱加載 (Hot-Reload)」。
 
 ---
 
 ## 3. 常見任務快速指令
 
-- **一鍵啟動伺服器與可視化 Web 儀表板**：
+- **一鍵啟動開發模式 (Web 儀表板 + Terminal + 熱重載, Port 3005)**：
   ```bash
-  ./run.sh
+  npx jit-api dev
+  # 或本地執行 ./run.sh
+  ```
+- **啟動生產模式 (高效純 API Gateway + 安全加固, Port 3000)**：
+  ```bash
+  npx jit-api start
+  ```
+- **發布規格快照版本 / 線上快速回滾降版**：
+  ```bash
+  npx jit-api release 1.0.0 "初次生產穩定發布"
+  npx jit-api rollback 1.0.0
   ```
 - **執行完整端到端生命週期演示**：
   ```bash

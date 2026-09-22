@@ -41,6 +41,7 @@ const elements = {
   respAiLatencyBadge: document.getElementById('respAiLatencyBadge'),
 
   // Benchmark
+  benchTargetRouteSelect: document.getElementById('benchTargetRouteSelect'),
   scenarioOptions: document.querySelectorAll('.scenario-option'),
   vusSlider: document.getElementById('vusSlider'),
   vusVal: document.getElementById('vusVal'),
@@ -139,11 +140,14 @@ function setupScenarioSelector() {
 // ================= Presets =================
 function setupPresets() {
   elements.presetSemanticBtn.addEventListener('click', () => {
+    const route = state.selectedRoute || (state.routes[0] ? state.routes[0].route : 'create_order');
+    const r = state.routes.find((x) => x.route === route);
+    const semantic = (r && r.sampleSemantic) ? r.sampleSemantic : `我想執行 ${route} 業務操作`;
+    const sample = (r && r.samplePayload) ? r.samplePayload : {};
     elements.requestPayloadInput.value = JSON.stringify(
       {
-        message: '我想訂購一台頂配 MacBook Pro 筆電，刷信用卡，金額是 89000 元',
-        item: 'MacBook Pro M4 Max',
-        amount: 89000,
+        message: semantic,
+        ...sample,
       },
       null,
       2
@@ -151,13 +155,13 @@ function setupPresets() {
   });
 
   elements.presetStableBtn.addEventListener('click', () => {
-    const route = state.selectedRoute || 'create_order';
+    const route = state.selectedRoute || (state.routes[0] ? state.routes[0].route : 'create_order');
+    const r = state.routes.find((x) => x.route === route);
+    const sample = (r && r.samplePayload) ? r.samplePayload : {};
     elements.requestPayloadInput.value = JSON.stringify(
       {
         route: route,
-        item: '極速電競機械鍵盤',
-        amount: 3200,
-        paymentMethod: 'LINE_PAY',
+        ...sample,
       },
       null,
       2
@@ -165,13 +169,14 @@ function setupPresets() {
   });
 
   elements.presetDriftBtn.addEventListener('click', () => {
+    const route = state.selectedRoute || (state.routes[0] ? state.routes[0].route : 'create_order');
+    const r = state.routes.find((x) => x.route === route);
+    const sample = (r && r.samplePayload) ? { ...r.samplePayload } : {};
+    sample._driftTag = 'VIP_DRIFT_' + Date.now();
     elements.requestPayloadInput.value = JSON.stringify(
       {
-        route: 'create_order',
-        item: '限量旗艦電競主機',
-        amount: 'NOT_A_FLOAT', // triggers drift fallback
-        couponCode: 'VIP_DISCOUNT_2026',
-        paymentMethod: 'CREDIT_CARD',
+        route: route,
+        ...sample,
       },
       null,
       2
@@ -189,15 +194,18 @@ function setupPresets() {
 }
 
 function loadDefaultPayload() {
-  elements.requestPayloadInput.value = JSON.stringify(
-    {
-      message: '我想訂購一台 Sony Alpha 相機，刷信用卡，金額是 42000 元',
-      item: 'Sony Alpha 7',
-      amount: 42000,
-    },
-    null,
-    2
-  );
+  if (state.routes && state.routes.length > 0) {
+    selectRoute(state.routes[0].route);
+  } else {
+    elements.requestPayloadInput.value = JSON.stringify(
+      {
+        route: 'ping',
+        client: 'dashboard-user',
+      },
+      null,
+      2
+    );
+  }
 }
 
 // ================= Event Handlers =================
@@ -273,7 +281,25 @@ async function loadRoutes() {
     elements.statFrozenRoutes.textContent = frozenCount;
     elements.statObservingRoutes.textContent = observingCount;
 
+    // Update target route select in benchmark tab
+    if (elements.benchTargetRouteSelect) {
+      const currentVal = elements.benchTargetRouteSelect.value;
+      elements.benchTargetRouteSelect.innerHTML = routes
+        .map((r) => `<option value="${r.route}">${r.route} [${r.stage === 'prod' ? 'PROD' : 'DEV'}] (${r.description || '無描述'})</option>`)
+        .join('');
+      if (currentVal && routes.some((r) => r.route === currentVal)) {
+        elements.benchTargetRouteSelect.value = currentVal;
+      } else if (state.selectedRoute) {
+        elements.benchTargetRouteSelect.value = state.selectedRoute;
+      }
+    }
+
     renderRouteCards(routes);
+
+    // If no route selected yet, select first route
+    if (!state.selectedRoute && routes.length > 0) {
+      selectRoute(routes[0].route);
+    }
   } catch (err) {
     elements.routeCardsContainer.innerHTML = `<div class="error-state">無法載入路由清單: ${err.message}</div>`;
   }
@@ -303,15 +329,22 @@ function renderRouteCards(routes) {
         badgeLabel = `Phase 2 Observing (${count}/${threshold})`;
       }
 
+      const stageBadgeClass = r.stage === 'prod' ? 'badge-stage-prod' : 'badge-stage-dev';
+      const stageLabel = r.stage === 'prod' ? 'PROD' : 'DEV';
+
       return `
         <div class="route-card ${state.selectedRoute === r.route ? 'selected' : ''}" data-route="${r.route}">
           <div class="card-top">
-            <span class="card-route-name">${r.route}</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="card-route-name">${r.route}</span>
+              <span class="badge-version">v${r.version || '1.0.0'}</span>
+              <span class="${stageBadgeClass}">${stageLabel}</span>
+            </div>
             <span class="badge-phase ${badgeClass}">${badgeLabel}</span>
           </div>
           <div class="card-desc">${r.description || '無描述'}</div>
           <div class="card-meta-row">
-            <span>意圖標記: ${r.intentCriteria ? r.intentCriteria.substring(0, 35) + '...' : '自動判定'}</span>
+            <span>意圖標記: ${r.intentCriteria ? r.intentCriteria.substring(0, 26) + '...' : '自動判定'}</span>
             <span>穩定度: ${pct}%</span>
           </div>
           <div class="progress-bar-bg">
@@ -337,13 +370,18 @@ function selectRoute(route) {
     c.classList.toggle('selected', c.getAttribute('data-route') === route);
   });
 
-  // Prefill stable preset for this route
+  if (elements.benchTargetRouteSelect) {
+    elements.benchTargetRouteSelect.value = route;
+  }
+
+  const r = state.routes.find((x) => x.route === route);
+  const sample = (r && r.samplePayload) ? r.samplePayload : {};
+
+  // Prefill dynamic sample preset for this route
   elements.requestPayloadInput.value = JSON.stringify(
     {
       route: route,
-      item: '精選旗艦商品',
-      amount: 4500,
-      paymentMethod: 'LINE_PAY',
+      ...sample,
     },
     null,
     2
@@ -398,11 +436,17 @@ async function sendTestRequest() {
 // ================= k6 Load Test Runner =================
 async function runK6Benchmark() {
   const selectedScenario = document.querySelector('input[name="benchMode"]:checked')?.value || 'phase3';
+  const targetRouteName = elements.benchTargetRouteSelect ? elements.benchTargetRouteSelect.value : state.selectedRoute;
+  const targetRouteObj = state.routes.find((r) => r.route === targetRouteName) || state.routes[0];
+  const targetRoute = targetRouteObj ? targetRouteObj.route : 'create_order';
+  const samplePayload = targetRouteObj ? targetRouteObj.samplePayload : undefined;
+  const sampleSemantic = targetRouteObj ? targetRouteObj.sampleSemantic : undefined;
+
   const vus = parseInt(elements.vusSlider.value, 10);
   const duration = `${elements.durationSlider.value}s`;
 
   elements.runK6Btn.disabled = true;
-  elements.runK6BtnText.textContent = `⚡ Grafana k6 壓測中 (${vus} VUs, ${duration})...`;
+  elements.runK6BtnText.textContent = `⚡ Grafana k6 壓測中 [${targetRoute}] (${vus} VUs, ${duration})...`;
   elements.benchResultsSection.style.display = 'none';
 
   try {
@@ -413,6 +457,9 @@ async function runK6Benchmark() {
         mode: selectedScenario,
         vus: vus,
         duration: duration,
+        targetRoute,
+        samplePayload,
+        sampleSemantic,
       }),
     });
 

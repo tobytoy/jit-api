@@ -83,6 +83,10 @@ export interface RouteDefinition {
   route: string;
   description: string;
   intentCriteria: string;
+  version?: string;
+  stage?: 'dev' | 'prod';
+  samplePayload?: Record<string, any>;
+  sampleSemantic?: string;
   enumFields?: Record<string, Record<string, string>>;
   handler: (payload: any, ctx: JITRequestContext) => Promise<any>;
 }

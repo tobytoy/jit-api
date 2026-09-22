@@ -163,3 +163,29 @@ docker compose up -d
 docker compose pull
 docker compose up -d
 ```
+
+---
+
+## 🎯 第三部分：業務 API 規格發布與快速降版 (Spec Release & Rollback)
+
+除了 `jit-api` 工具本體發布至 NPM/PyPI 之外，開發團隊在日常業務中維護的 **Markdown API 規格 (`specs/*.api.md`)** 也享有完善的版本封存與事故秒級降版機制：
+
+### 1. 規格發布至生產 (Release to Prod)
+當 API 在 `dev` 模式（Port 3005）測試驗證無誤，將規格標記為 `Stage: prod` 後，執行：
+```bash
+npx jit-api release 1.0.0 "會員登入與結帳端點上線"
+```
+* **系統行為**：
+  * 自動在專案目錄建立 `.jit/releases/v1.0.0/` 快照備份。
+  * 產出包含時間戳記、API 清單與說明之 `manifest.json`。
+  * 生產伺服器 (`npx jit-api start`, Port 3000) 即可對外正式提供服務。
+
+### 2. 生產事故秒級無縫降版 (Instant Rollback)
+若最新發布的 API 在線上遇到非預期業務例外，需緊急恢復上一版穩定狀態：
+```bash
+npx jit-api rollback 1.0.0
+```
+* **零停機熱還原 (Zero-Downtime)**：
+  * 1 秒內自快照還原對應版本之規格檔案。
+  * `MDLoader` 無縫熱加載至記憶體中，**Node.js 服務無須重啟，正在進行的 HTTP 請求不會中斷**。
+

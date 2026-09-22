@@ -29,7 +29,7 @@ try {
 const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer } = coreModules;
 
 const args = process.argv.slice(2);
-const command = args[0] || 'dev';
+const command = args[0] && !args[0].startsWith('-') ? args[0] : 'dev';
 
 // Parse CLI flags
 function getArg(flag, defaultVal) {
@@ -48,11 +48,14 @@ Usage:
   npx jit-api [command] [options]
 
 Commands:
-  dev               啟動 JIT 協定合成伺服器與 Web 控制台 (預設)
+  dev               啟動開發模式：含 Web Studio、PTY 終端、動態熱重載 (預設, Port: 3005)
+  start | prod      啟動生產模式：高效 API Gateway、安全防護 (停用終端、唯讀規格, Port: 3000)
+  release <version> 建立當前 Markdown 規格之版本快照 (例: npx jit-api release 1.0.0)
+  rollback <version>秒級無縫回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
   init              在當前專案目錄建立 specs/ 規格目錄與範本
 
 Options:
-  --port <number>   指定伺服器連接埠 (預設: 3005)
+  --port <number>   指定伺服器連接埠 (dev 預設 3005, prod 預設 3000)
   --specs <path>    指定 Markdown API 規格目錄 (預設: ./specs)
   -h, --help        顯示說明資訊
   -v, --version     顯示版本資訊
@@ -63,6 +66,46 @@ Options:
 if (args.includes('--version') || args.includes('-v')) {
   const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf-8'));
   console.log(`jit-api v${pkg.version}`);
+  process.exit(0);
+}
+
+const specsDir = path.resolve(process.cwd(), getArg('--specs', process.env.JIT_SPECS_DIR || 'specs'));
+
+// Command: release <version>
+if (command === 'release') {
+  const version = args[1];
+  if (!version) {
+    console.error('❌ 請提供版本號！範例: npx jit-api release 1.0.0');
+    process.exit(1);
+  }
+  const notes = args.slice(2).join(' ') || undefined;
+  const loader = new MDLoader(specsDir);
+  const releaseInfo = loader.snapshotRelease(version, notes);
+  console.log(`\n📦 [RELEASE] 成功發布並封存規格快照版本：${releaseInfo.version}`);
+  console.log(`   - 📅 發布時間: ${releaseInfo.releasedAt}`);
+  console.log(`   - 📝 規格數量: ${releaseInfo.specsCount} 支`);
+  console.log(`   - 📂 存放路徑: .jit/releases/${releaseInfo.version}/`);
+  process.exit(0);
+}
+
+// Command: rollback <version>
+if (command === 'rollback') {
+  const version = args[1];
+  if (!version) {
+    console.error('❌ 請提供欲降版之版本號！範例: npx jit-api rollback 1.0.0');
+    process.exit(1);
+  }
+  const loader = new MDLoader(specsDir);
+  const tempEngine = new JITEngine();
+  try {
+    const res = loader.rollback(version, tempEngine);
+    console.log(`\n🔄 [ROLLBACK] 降版成功！已成功還原至版本：${res.version}`);
+    console.log(`   - 📝 成功還原規格數量: ${res.restoredCount} 支`);
+    console.log(`   - 🚀 若生產伺服器正在運行，已即時無痛熱加載生效！`);
+  } catch (err) {
+    console.error(`❌ 回滾失敗:`, err.message);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
@@ -77,6 +120,8 @@ if (command === 'init') {
     fs.writeFileSync(
       sampleFile,
       `# API: create_order
+Version: 1.0.0
+Stage: prod
 > 處理使用者下單與訂單成立
 
 ## Intent
@@ -89,6 +134,17 @@ User wants to buy, purchase, checkout or order items and products
   - CREDIT_CARD: 信用卡線上刷卡
   - LINE_PAY: Line Pay 行動支付
   - APPLE_PAY: Apple Pay 感應支付
+
+## Sample
+- Semantic: 我想訂購一台 iPad Pro 平板電腦，刷 LINE Pay，金額 25900 元
+- Payload:
+\`\`\`json
+{
+  "item": "iPad Pro",
+  "amount": 25900,
+  "paymentMethod": "LINE_PAY"
+}
+\`\`\`
 
 ## Logic
 \`\`\`javascript
@@ -114,9 +170,11 @@ return {
   process.exit(0);
 }
 
-// Default Command: dev (Start Web Studio & JIT Engine)
-const PORT = parseInt(getArg('--port', process.env.PORT || '3005'), 10);
-const specsDir = path.resolve(process.cwd(), getArg('--specs', process.env.JIT_SPECS_DIR || 'specs'));
+// Server Mode Setup: Dev vs Prod
+const isProd = command === 'prod' || command === 'start' || process.env.NODE_ENV === 'production';
+const defaultPort = isProd ? 3000 : 3005;
+const PORT = parseInt(getArg('--port', process.env.PORT || String(defaultPort)), 10);
+const stageFilter = isProd ? 'prod' : 'all';
 
 // Ensure specs dir exists in user's cwd
 if (!fs.existsSync(specsDir)) {
@@ -125,6 +183,8 @@ if (!fs.existsSync(specsDir)) {
   fs.writeFileSync(
     welcomeSpec,
     `# API: ping
+Version: 1.0.0
+Stage: prod
 > 服務健康檢查端點
 
 ## Intent
@@ -132,6 +192,15 @@ User checks if service is alive, healthcheck or ping
 
 ## Fields
 - client: string (客戶端標記)
+
+## Sample
+- Semantic: 檢查伺服器健康狀態 ping
+- Payload:
+\`\`\`json
+{
+  "client": "healthcheck-agent"
+}
+\`\`\`
 
 ## Logic
 \`\`\`javascript
@@ -168,10 +237,12 @@ const engine = new JITEngine({
   },
 });
 
-// 2. 初始化自適應 MDLoader
+// 2. 初始化自適應 MDLoader (依模式篩選 stage)
 const mdLoader = new MDLoader(specsDir);
-const loadedSpecs = mdLoader.loadAll(engine);
-mdLoader.watch(engine);
+const loadedSpecs = mdLoader.loadAll(engine, stageFilter);
+if (!isProd) {
+  mdLoader.watch(engine, undefined, stageFilter);
+}
 
 // 3. 掛載 MCP Server (SSE)
 MCPAdapter.attachToExpress(app, engine, mdLoader, '/sse', '/messages');
@@ -184,18 +255,24 @@ app.get('/api/info', (req, res) => {
   res.json({
     name: 'JIT Protocol Synthesis Studio',
     version: '2.0.0',
+    mode: isProd ? 'prod' : 'dev',
     port: PORT,
     engine: process.env.TYPESAFE_API_KEY ? 'typesafe' : 'needle',
     routesCount: engine.getRoutes().length,
     specsDir: mdLoader.getSpecsDir(),
+    stageFilter,
   });
 });
 
 app.get('/api/routes', (req, res) => {
   const routes = engine.getRoutes().map((r) => ({
     route: r.route,
+    version: r.version || '1.0.0',
+    stage: r.stage || 'dev',
     description: r.description,
     intentCriteria: r.intentCriteria,
+    samplePayload: r.samplePayload,
+    sampleSemantic: r.sampleSemantic,
     status: engine.getRouteStatus(r.route),
   }));
   res.json(routes);
@@ -215,7 +292,7 @@ app.get('/api/jit/status/:route', (req, res) => {
 });
 
 app.get('/api/specs', (req, res) => {
-  res.json(mdLoader.listSpecs());
+  res.json(mdLoader.listSpecs(stageFilter));
 });
 
 app.get('/api/specs/:file', (req, res) => {
@@ -228,6 +305,9 @@ app.get('/api/specs/:file', (req, res) => {
 });
 
 app.post('/api/specs/:file', (req, res) => {
+  if (isProd) {
+    return res.status(403).json({ error: '生產模式 (Prod) 下禁止透過 HTTP 線上修改 API 規格！請在 Dev 模式修改並驗證後發布。' });
+  }
   try {
     const content = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     mdLoader.saveSpec(req.params.file, content);
@@ -239,8 +319,35 @@ app.post('/api/specs/:file', (req, res) => {
 
 app.post('/api/specs/reload', (req, res) => {
   try {
-    const reloaded = mdLoader.reload(engine);
+    const reloaded = mdLoader.reload(engine, stageFilter);
     res.json({ success: true, count: reloaded.length, routes: reloaded.map((s) => s.route) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Release Management API
+app.get('/api/releases', (req, res) => {
+  res.json(mdLoader.listReleases());
+});
+
+app.post('/api/releases/snapshot', (req, res) => {
+  const { version, notes } = req.body;
+  if (!version) return res.status(400).json({ error: 'Missing version parameter' });
+  try {
+    const info = mdLoader.snapshotRelease(version, notes);
+    res.json({ success: true, release: info });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/releases/rollback', (req, res) => {
+  const { version } = req.body;
+  if (!version) return res.status(400).json({ error: 'Missing version parameter' });
+  try {
+    const info = mdLoader.rollback(version, engine, stageFilter);
+    res.json({ success: true, rollback: info });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -252,6 +359,9 @@ app.post('/api/bench/k6', async (req, res) => {
     mode: req.body.mode || 'phase3',
     vus: Number(req.body.vus || 10),
     duration: req.body.duration || '5s',
+    targetRoute: req.body.targetRoute,
+    samplePayload: req.body.samplePayload,
+    sampleSemantic: req.body.sampleSemantic,
   };
 
   try {
@@ -278,18 +388,28 @@ app.get('/api/contracts', (req, res) => {
   }
 });
 
-// 啟動伺服器與 Web Terminal
+// 啟動伺服器與 Web Terminal (Prod 模式停用 Terminal 以保障系統資安)
 const server = http.createServer(app);
-new TerminalServer(server, '/ws/terminal');
+if (!isProd) {
+  new TerminalServer(server, '/ws/terminal');
+}
 
 server.listen(PORT, () => {
   console.log('='.repeat(70));
-  console.log(`🚀 JIT Protocol Synthesis Studio (CLI) 啟動成功！`);
-  console.log(`   - 🌐 前端觀測與壓測儀表板: http://localhost:${PORT}`);
-  console.log(`   - 📂 載入規格目錄 (CWD):   ${specsDir}`);
-  console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支`);
-  console.log(`   - 💻 整合 Web 終端 (PTY):  http://localhost:${PORT} (底部抽屜)`);
-  console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
-  console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
+  if (isProd) {
+    console.log(`🔒 [PROD MODE] JIT Protocol Synthesis 生產網關啟動成功！`);
+    console.log(`   - 🚀 高吞吐靜態 API 入口:  http://localhost:${PORT}/api/jit`);
+    console.log(`   - 🛡️ 安全狀態:              Web Terminal 已停用, 規格修改已封鎖`);
+    console.log(`   - 🏷️ API Stage 篩選:        僅載入 Stage: prod 規格`);
+    console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支`);
+  } else {
+    console.log(`🚀 [DEV MODE] JIT Protocol Synthesis Studio 開發控制台啟動成功！`);
+    console.log(`   - 🌐 前端觀測與壓測儀表板: http://localhost:${PORT}`);
+    console.log(`   - 📂 載入規格目錄 (CWD):   ${specsDir}`);
+    console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支 (含 Dev 草稿)`);
+    console.log(`   - 💻 整合 Web 終端 (PTY):  http://localhost:${PORT} (底部抽屜)`);
+    console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
+    console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
+  }
   console.log('='.repeat(70));
 });

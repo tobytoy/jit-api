@@ -13,6 +13,15 @@ const TEST_MODE = __ENV.K6_MODE || 'phase3'; // 'phase1' | 'phase3'
 const VUS = parseInt(__ENV.K6_VUS || '10', 10);
 const DURATION = __ENV.K6_DURATION || '5s';
 
+const TARGET_ROUTE = __ENV.K6_TARGET_ROUTE || 'create_order';
+let CUSTOM_PAYLOAD = null;
+if (__ENV.K6_SAMPLE_PAYLOAD) {
+  try {
+    CUSTOM_PAYLOAD = JSON.parse(__ENV.K6_SAMPLE_PAYLOAD);
+  } catch (e) {}
+}
+const CUSTOM_SEMANTIC = __ENV.K6_SAMPLE_SEMANTIC;
+
 export const options = {
   vus: VUS,
   duration: DURATION,
@@ -26,20 +35,36 @@ export default function () {
 
   if (TEST_MODE === 'phase1') {
     // Phase 1: Natural language / loose dynamic payload requiring semantic routing
-    payload = JSON.stringify({
-      message: '我想訂購一台 iPad Pro 平板電腦，刷信用卡，金額是 29900 元',
-      item: 'iPad Pro',
-      amount: 29900,
-      paymentMethod: 'CREDIT_CARD',
-    });
+    if (CUSTOM_SEMANTIC) {
+      payload = JSON.stringify({
+        message: CUSTOM_SEMANTIC,
+        ...(CUSTOM_PAYLOAD || {}),
+      });
+    } else if (CUSTOM_PAYLOAD) {
+      payload = JSON.stringify(CUSTOM_PAYLOAD);
+    } else {
+      payload = JSON.stringify({
+        message: '我想訂購一台 iPad Pro 平板電腦，刷信用卡，金額是 29900 元',
+        item: 'iPad Pro',
+        amount: 29900,
+        paymentMethod: 'CREDIT_CARD',
+      });
+    }
   } else {
     // Phase 3: Static Fast-Path payload matching frozen schema (0ms AI latency)
-    payload = JSON.stringify({
-      route: 'create_order',
-      item: 'Mechanical Keyboard',
-      amount: 3200,
-      paymentMethod: 'LINE_PAY',
-    });
+    if (CUSTOM_PAYLOAD) {
+      payload = JSON.stringify({
+        route: TARGET_ROUTE,
+        ...CUSTOM_PAYLOAD,
+      });
+    } else {
+      payload = JSON.stringify({
+        route: TARGET_ROUTE,
+        item: 'Mechanical Keyboard',
+        amount: 3200,
+        paymentMethod: 'LINE_PAY',
+      });
+    }
   }
 
   const params = {

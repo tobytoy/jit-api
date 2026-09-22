@@ -29,6 +29,8 @@
 
 ```markdown
 # API: create_order
+Version: 1.0.0
+Stage: prod
 > 處理使用者下單與訂單成立
 
 ## Intent
@@ -41,6 +43,17 @@ User wants to buy, purchase, checkout or place an order for products and goods
   - CREDIT_CARD: 信用卡線上刷卡
   - LINE_PAY: Line Pay 行動支付
   - APPLE_PAY: Apple Pay 感應支付
+
+## Sample
+- Semantic: 我想訂購一台 M4 Max 頂配 MacBook Pro，刷信用卡，金額是 89000 元
+- Payload:
+```json
+{
+  "item": "MacBook Pro M4 Max",
+  "amount": 89000,
+  "paymentMethod": "CREDIT_CARD"
+}
+```
 
 ## Logic
 ```javascript
@@ -61,12 +74,18 @@ return {
 | 區塊標籤 | 說明 | 必要性 | 範例 |
 | :--- | :--- | :--- | :--- |
 | `# API: {name}` | API 路由唯一識別名稱 | **必填** | `# API: process_refund` |
+| `Version: {x.y.z}` | 語意化版本號 | 選填 (預設 1.0.0) | `Version: 1.0.0` |
+| `Stage: {dev\|prod}` | 部署環境階段 (`dev` 草稿, `prod` 生產) | 選填 (預設 dev) | `Stage: prod` |
 | `> {description}` | 該 API 的業務功能簡述 | 建議填寫 | `> 處理使用者退費與案件審核` |
 | `## Intent` | 告訴 AI 引擎該端點接收什麼自然語言意圖 | **必填** | `User wants to refund or return items` |
 | `## Fields` | 接收的欄位清單與型態註解 | 選填 | `- amount: number (退款金額)` |
 | 列舉縮排 | 在 enum 欄位下縮排條列選項與說明 | 搭配 enum | `  - URGENT: 緊急案件` |
+| `## Sample` | 測試範例（含自然語言語意字串與 JSON Payload） | **強烈推薦** | 前端控制台與壓測引擎自動動態帶入 |
 | `## Logic` | JavaScript/TypeScript 業務處理程式碼區塊 | 建議填寫 | 取得 `payload` 與 `ctx`，回傳結果物件 |
 | `## Mock` | 若尚未寫業務代碼，可直接給予 Mock JSON | 與 Logic 擇一 | ````json\n{"status": "SUCCESS"}\n```` |
+
+> [!TIP]
+> **智慧欄位推導 (Smart Fallback)**：即使忘記撰寫 `## Sample` 區塊，`MDParser` 也會自動根據 `## Fields` 的欄位定義自動合成合理的測試假資料，徹底杜絕前端與壓測引擎寫死資料的尷尬！
 
 ---
 
@@ -191,4 +210,49 @@ Claude 或 Cursor 連線後，即可直接在對話中調用您在 `specs/` 裡�
 * 此時只要對 AI Agent 說：
   > *「我剛剛改了 `specs/create_order.api.md`，幫我重新編譯合約並跑測試！」*
 * Agent 就會直接執行 `CodegenEngine`，一次性將最新的 `create_order.ts`、`create_order.py` 產出至 `generated/` 目錄並跑完單元測試！
+
+---
+
+## 7. Dev 與 Prod 雙模式開發架構
+
+為了兼顧「本機快速除錯、觀測實驗」與「線上高可用、絕對資安防護」，`jit-api` 採用雙模式架構：
+
+| 模式項目 | 🛠️ 開發模式 (`npx jit-api dev`) | 🔒 生產模式 (`npx jit-api start`) |
+| :--- | :--- | :--- |
+| **啟動指令** | `npx jit-api dev` (或 `./run.sh`) | `npx jit-api start` (或 `npx jit-api prod`) |
+| **預設連接埠** | `3005` (可透過 `--port` 自訂) | `3000` (或環境變數 `PORT`) |
+| **API 載入範圍** | 全部載入（包含 `Stage: dev` 草稿與 `Stage: prod`） | **僅載入 `Stage: prod` 規格**（未就緒草稿絕不流出） |
+| **Web 觀測儀表板** | ✅ 完整啟用 (`http://localhost:3005`) | ❌ 預設不提供除錯介面（純極速網關） |
+| **Web 終端機 (PTY)**| ✅ 啟用 (`/ws/terminal`)，便於本機偵錯 | 🚫 **強制停用**（消除 RCE 遠端指令注入風險） |
+| **線上規格覆寫** | ✅ 允許 (`POST /api/specs/:file`) | 🚫 **強制阻絕** (回傳 403 Forbidden) |
+| **檔案變更熱重載** | ✅ 即時檔案監視 (File Watcher) | ⚠️ 手動重載或由發布/降版流程觸發 |
+
+### 實務開發工作流：
+1. **本地開發新 API**：
+   在規格頂部註記 `Stage: dev`，在本機 `http://localhost:3005` 進行語意測試與欄位校驗。
+2. **審核發布上線**：
+   將標籤改為 `Stage: prod`，執行 `npx jit-api release <version>`，生產伺服器即可直接承接外部流量！
+
+---
+
+## 8. 版本控管、快照封存與秒級無縫降版 (Instant Rollback)
+
+當 Markdown 定義了線上生產 API 時，若最新改動在線上遇到未預期的例外狀況，必須能**秒級降版還原**。
+
+### 1. 建立版本發布快照 (Release Snapshot)
+在部署或測試驗證完成後，執行：
+```bash
+npx jit-api release 1.0.0 "初次生產環境穩定發布"
 ```
+* 系統會自動將當前規格備份至 `.jit/releases/v1.0.0/`，並記錄發布清單 `manifest.json` 與時間戳記。
+
+### 2. 事故緊急秒級回滾 (Instant Rollback)
+若最新版上線後發現異常，無需等待 CI/CD 重新構建打包，直接於終端機執行：
+```bash
+npx jit-api rollback 1.0.0
+```
+* **零停機熱替換 (Zero-Downtime)**：
+  1. 系統瞬間自 `.jit/releases/v1.0.0/` 還原正確版本的規格。
+  2. JIT 引擎在 **0.2 秒** 內無縫熱加載記憶體中的路由與邏輯。
+  3. **服務完全不中斷、連線不被重置、無須重啟伺服器進程**！
+

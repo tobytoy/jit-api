@@ -26,13 +26,14 @@
 
 ### 1. 🚀 [Markdown 標記式 API (MD-API) 與 Agent 協同指南](./md_api_guide.md)
 * **核心理念**：「工程師/PM 只需寫 Markdown，Agent 搞定所有代碼，使用者 `./run.sh` 開箱即用」。
-* **語法手把手教學**：`# API`, `## Intent`, `## Fields`, `## Logic` 規範。
+* **語法手把手教學**：`# API`, `Version`, `Stage`, `## Intent`, `## Fields`, `## Sample`, `## Logic` 規範。
+* **動態範例與智慧推導**：宣告 `## Sample` 自動填入前端與壓測；未宣告時自動依欄位推導假資料。
+* **Dev 與 Prod 雙模式隔離**：開發模式 (`dev`, 3005) 載入全部 API；生產模式 (`start`, 3000) 僅載入 `Stage: prod` 並封鎖危險終端。
 * **規格目錄管理**：`specs/*.api.md` 動態熱加載（Hot-Reload）機制。
-* **Agent 協作工作流**：如何對 AI Agent 說一句話自動完成合成、測試與凍結。
 
 ### 2. ⚡ [Grafana k6 壓力測試與前端控制台指南](./benchmark_guide.md)
-* **Web 儀表板一鍵壓測**：VUs 並發與秒數自訂，即時產生 RPS 與延遲階梯分佈。
-* **CLI 終端機壓測**：內建綠色免安裝版 `bin/k6` 調用方式。
+* **Web 儀表板一鍵壓測**：自由選擇目標 API 端點、自動注入真實 Sample 測試資料、VUs 並發與秒數自訂。
+* **CLI 終端機壓測**：內建綠色免安裝版 `bin/k6` 調用方式，支援環境變數指定路由與自訂 Payload。
 * **效能躍升解析**：實測 Phase 3 達成中位數 **0.47ms** 延遲、**1,300+ RPS** 與 **0ms AI 運算延遲**。
 * **VS Code 風格 Web 終端 (Integrated Terminal)**：網頁底部內建即時 PTY 終端機（支援 zsh/bash、快捷鍵 `Ctrl + \``、快捷指令），實現「上方看網頁、下方直接呼叫 Agent / 跑指令」的一體化極致體驗！
 
@@ -60,9 +61,9 @@
 
 ### 7. 🔄 [版本發布與升級指南](./release_and_upgrade_guide.md)
 * **GitHub vs 官方 Registry（廚房 vs 超市貨架）**：清晰區分代碼存放與終端安裝包。
-* **維護者發布 SOP**：NPM (`package.json` + `npm publish`) 與 PyPI (`pyproject.toml` + `twine upload`) 的版號遞增與發布清單。
+* **套件發布 SOP**：NPM (`jit-api`) 與 PyPI (`jit-protocol`) 版號遞增與發布流程。
+* **業務 API 規格快照發布與秒級降版**：`npx jit-api release <ver>` 建立規格快照；`npx jit-api rollback <ver>` 零停機即時回滾。
 * **使用者升級方法**：`npx jit-api` 自動無痛升級、`npm update -g`、`pip install -U` 與 Docker 映像檔更新。
-* **AI 協同發布**：對 AI Agent 說一句話自動完成改版與多平台同步發布。
 
 ---
 
