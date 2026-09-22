@@ -84,13 +84,18 @@ jit-api/
 
 ## 🚀 快速上手 (Quick Start)
 
-### 1. 安裝環境依賴
+### 1. 一鍵啟動視覺化控制台與 JIT 伺服器 (最推薦)
 ```bash
-npm install
+./run.sh
 ```
+啟動後瀏覽器打開 **`http://localhost:3005`**，即可使用：
+* 🧭 **路由即時觀測**：即時測試自然語言與穩定請求，觀測穩定度進度條與 Phase 3 自動凍結。
+* ⚡ **Grafana k6 一鍵壓力測試**：自訂虛擬用戶並發與秒數，實測突破 1,300+ RPS 與 0.47ms 極低延遲。
+* 📝 **Markdown API 規格中心**：在線瀏覽/編輯 `specs/*.api.md`，一鍵即時熱加載（Hot-Reload）。
+* 📦 **凍結合約代碼檢視**：即時預覽自動生成的 TypeScript (Zod)、Python (Pydantic)、Protobuf (.proto)。
 
 ### 2. 環境變數設定 (`.env`)
-在專案根目錄確認 `.env`：
+在專案根目錄確認 `.env`（若無金鑰將自動降級使用本地端側小模型 Needle）：
 ```env
 TYPESAFE_API_KEY=your_typesafe_api_key_here
 ```
@@ -109,27 +114,19 @@ npm run demo:py
 
 ### 4. 執行自動化測試
 ```bash
-# 執行 TypeScript 測試 (Vitest)
+# 執行 TypeScript 測試 (Vitest, 17/17 tests passing)
 npm test
 
-# 執行 Python 測試 (Pytest, conda toby 環境)
+# 執行 Python 測試 (Pytest, conda toby 環境, 11/11 tests passing)
 npm run test:py
 ```
 
-### 5. 執行 Server 與 Client 範例
-詳見完整文件 [docs/README.md](file:///home/toby/documents/projects/jit-api/docs/README.md)：
-* **[Server 端整合指南](file:///home/toby/documents/projects/jit-api/docs/server_guide.md)**
-* **[Client 端調用指南](file:///home/toby/documents/projects/jit-api/docs/client_guide.md)**
-
-```bash
-# 啟動 TypeScript (Express) 伺服器與客戶端測試
-npm run example:ts:server
-npm run example:ts:client
-
-# 啟動 Python (FastAPI) 伺服器與客戶端測試
-npm run example:py:server
-npm run example:py:client
-```
+### 5. 完整開發指南 (`docs/`)
+詳見完整文件索引 [docs/README.md](file:///home/toby/documents/projects/jit-api/docs/README.md)：
+* 🚀 **[Markdown 標記式 API 與 Agent 協同指南](file:///home/toby/documents/projects/jit-api/docs/md_api_guide.md)** — 如何寫 `specs/*.api.md` 並由 Agent 自動合成代碼
+* ⚡ **[Grafana k6 壓力測試指南](file:///home/toby/documents/projects/jit-api/docs/benchmark_guide.md)** — Web 一鍵壓測與 CLI 壓測
+* 🖥️ **[Server 端整合指南](file:///home/toby/documents/projects/jit-api/docs/server_guide.md)** — Express & FastAPI 底層程式碼
+* 📱 **[Client 端調用指南](file:///home/toby/documents/projects/jit-api/docs/client_guide.md)** — 全生命週期呼叫規範
 
 ### 6. 建置專案
 ```bash

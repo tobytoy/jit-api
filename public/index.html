@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JIT-API Protocol Synthesis Studio | 協定合成即時觀測與壓測中心</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Ambient background glow effects -->
+  <div class="glow-sphere sphere-1"></div>
+  <div class="glow-sphere sphere-2"></div>
+  <div class="glow-sphere sphere-3"></div>
+
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="top-nav">
+      <div class="brand-group">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">JIT Protocol Synthesis</div>
+          <div class="brand-subtitle">Dynamic-to-Static API Generation & Grafana k6 Studio</div>
+        </div>
+      </div>
+
+      <div class="nav-status-group">
+        <div class="status-pill status-online" id="serverStatusPill">
+          <span class="pulse-dot"></span>
+          <span id="serverStatusText">Server: Online</span>
+        </div>
+        <div class="status-pill status-engine" id="engineStatusPill">
+          <span class="engine-icon">⚡</span>
+          <span id="engineStatusText">Engine: Detecting...</span>
+        </div>
+        <button class="refresh-btn" id="globalRefreshBtn" title="重新整理所有狀態">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-navigation">
+      <button class="tab-btn active" data-tab="tab-routes">
+        <span class="tab-icon">🧭</span>
+        <span>路由即時觀測</span>
+        <span class="tab-counter" id="routeCountBadge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-benchmark">
+        <span class="tab-icon">⚡</span>
+        <span>Grafana k6 壓力測試</span>
+        <span class="badge-accent">Live</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-specs">
+        <span class="tab-icon">📝</span>
+        <span>Markdown API 規格書</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-contracts">
+        <span class="tab-icon">📦</span>
+        <span>凍結合約代碼</span>
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- ================= TAB 1: 路由即時觀測 ================= -->
+      <section class="tab-pane active" id="tab-routes">
+        <!-- Stats Row -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">已掛載端點總數</div>
+            <div class="stat-val" id="statTotalRoutes">--</div>
+            <div class="stat-desc">含 Markdown 動態解析</div>
+          </div>
+          <div class="stat-card stat-card-frozen">
+            <div class="stat-label">已自動凍結 (Phase 3)</div>
+            <div class="stat-val" id="statFrozenRoutes">--</div>
+            <div class="stat-desc">享有 0ms AI 延遲極速路徑</div>
+          </div>
+          <div class="stat-card stat-card-observing">
+            <div class="stat-label">觀測演進中 (Phase 1/2)</div>
+            <div class="stat-val" id="statObservingRoutes">--</div>
+            <div class="stat-desc">動態語意協商與統計樣本</div>
+          </div>
+          <div class="stat-card stat-card-speed">
+            <div class="stat-label">Phase 3 本地延遲</div>
+            <div class="stat-val">&lt; 1 ms</div>
+            <div class="stat-desc">Zod / Pydantic 靜態驗證</div>
+          </div>
+        </div>
+
+        <div class="routes-layout">
+          <!-- Left: Route Cards List -->
+          <div class="routes-column">
+            <div class="section-header">
+              <h3>開放端點清單 (Active Endpoints)</h3>
+              <span class="text-dim">點選端點載入測試器</span>
+            </div>
+            <div class="route-cards-list" id="routeCardsContainer">
+              <div class="loading-state">載入路由狀態中...</div>
+            </div>
+          </div>
+
+          <!-- Right: Interactive Test Console -->
+          <div class="console-column">
+            <div class="section-header">
+              <h3>即時調用測試器 (Interactive Playground)</h3>
+              <div class="preset-pill-group">
+                <button class="preset-pill" id="presetSemanticBtn">自然語言 (Phase 1)</button>
+                <button class="preset-pill" id="presetStableBtn">規格化 (Phase 2/3)</button>
+                <button class="preset-pill" id="presetDriftBtn">欄位漂移 (Drift)</button>
+              </div>
+            </div>
+
+            <div class="console-box">
+              <div class="console-target-bar">
+                <span class="badge-post">POST</span>
+                <input type="text" class="console-endpoint-input" id="consoleEndpointInput" value="/api/jit" readonly />
+                <button class="primary-btn" id="sendRequestBtn">
+                  <span>🚀 發送請求</span>
+                </button>
+              </div>
+
+              <div class="input-editor-container">
+                <div class="editor-header">
+                  <span>Request Payload (JSON)</span>
+                  <button class="small-text-btn" id="formatJsonBtn">排版格式</button>
+                </div>
+                <textarea class="code-textarea" id="requestPayloadInput" spellcheck="false"></textarea>
+              </div>
+
+              <div class="response-container">
+                <div class="editor-header">
+                  <span>Response Breakdown</span>
+                  <div class="timing-badge-group">
+                    <span class="badge-pill" id="respPhaseBadge">Phase: --</span>
+                    <span class="badge-pill" id="respLatencyBadge">Time: --</span>
+                    <span class="badge-pill" id="respAiLatencyBadge">AI Latency: --</span>
+                  </div>
+                </div>
+                <pre class="code-output" id="responsePayloadOutput">點擊「發送請求」以檢視即時回傳結果...</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ================= TAB 2: Grafana k6 壓力測試 ================= -->
+      <section class="tab-pane" id="tab-benchmark">
+        <div class="bench-hero">
+          <div class="bench-hero-left">
+            <h2>⚡ Grafana k6 壓力測試控制台</h2>
+            <p>
+              實測驗證 <strong>JIT 協定合成</strong> 的效能飛躍：比較 <strong>Phase 1 (動態語意/端側 AI)</strong> 與 <strong>Phase 3 (靜態 Fast-Path 本地極速)</strong> 的極限吞吐量 (RPS) 與延遲分佈。
+            </p>
+          </div>
+          <div class="bench-hero-right">
+            <div class="runner-badge">
+              <span class="pulse-dot"></span>
+              <span>k6 Binary: v0.54.0 Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bench-controls-card">
+          <div class="bench-config-grid">
+            <div class="config-col">
+              <label class="config-label">測試目標情境 (Scenario)</label>
+              <div class="scenario-selector">
+                <label class="scenario-option selected" data-mode="phase3">
+                  <input type="radio" name="benchMode" value="phase3" checked />
+                  <div class="scenario-content">
+                    <div class="scenario-title">Phase 3: 傳統極速期 (Fast-Path)</div>
+                    <div class="scenario-desc">0ms AI 延遲，本地純靜態 Zod/Pydantic 驗證，高並發極限吞吐</div>
+                  </div>
+                </label>
+                <label class="scenario-option" data-mode="phase1">
+                  <input type="radio" name="benchMode" value="phase1" />
+                  <div class="scenario-content">
+                    <div class="scenario-title">Phase 1: 語意熱啟動期 (Dynamic)</div>
+                    <div class="scenario-desc">每次請求經由 Needle/TypeSafe 模型進行語意路由與欄位萃取</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="config-col">
+              <div class="slider-group">
+                <div class="slider-label-row">
+                  <span>虛擬使用者並發 (Virtual Users - VUs)</span>
+                  <span class="slider-val" id="vusVal">15 VUs</span>
+                </div>
+                <input type="range" class="slider-input" id="vusSlider" min="5" max="50" step="5" value="15" />
+              </div>
+
+              <div class="slider-group">
+                <div class="slider-label-row">
+                  <span>測試持續時間 (Duration)</span>
+                  <span class="slider-val" id="durationVal">5 秒</span>
+                </div>
+                <input type="range" class="slider-input" id="durationSlider" min="3" max="15" step="1" value="5" />
+              </div>
+
+              <div class="action-row">
+                <button class="huge-accent-btn" id="runK6Btn">
+                  <span class="btn-icon">⚡</span>
+                  <span id="runK6BtnText">開始執行一鍵壓力測試</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time / Benchmark Result View -->
+        <div class="bench-results-section" id="benchResultsSection" style="display: none;">
+          <div class="summary-highlight-banner" id="summaryBanner">
+            <div class="banner-icon">🚀</div>
+            <div>
+              <div class="banner-title" id="bannerTitle">壓測完成！Phase 3 實現微秒級極速吞吐</div>
+              <div class="banner-subtitle" id="bannerSubtitle">0 毫秒 AI 運算延遲，系統吞吐量提升達數十倍</div>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-box">
+              <div class="metric-title">每秒請求數 (RPS / QPS)</div>
+              <div class="metric-number text-accent" id="metricRps">--</div>
+              <div class="metric-foot">Requests per second</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-title">平均延遲 (Avg Latency)</div>
+              <div class="metric-number text-emerald" id="metricAvg">--</div>
+              <div class="metric-foot">毫秒 (ms)</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-title">P95 延遲 (95th Percentile)</div>
+              <div class="metric-number text-purple" id="metricP95">--</div>
+              <div class="metric-foot">毫秒 (ms)</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-title">請求成功率 (Success Rate)</div>
+              <div class="metric-number text-blue" id="metricSuccess">--</div>
+              <div class="metric-foot">Status 200 OK</div>
+            </div>
+          </div>
+
+          <!-- Latency Percentiles Breakdown -->
+          <div class="percentiles-card">
+            <h4>延遲分佈階梯 (Latency Percentiles Breakdown)</h4>
+            <div class="percentile-bars">
+              <div class="bar-item">
+                <span class="bar-label">Min</span>
+                <span class="bar-val" id="valMin">--</span>
+              </div>
+              <div class="bar-item">
+                <span class="bar-label">Median (p50)</span>
+                <span class="bar-val" id="valMed">--</span>
+              </div>
+              <div class="bar-item">
+                <span class="bar-label">p90</span>
+                <span class="bar-val" id="valP90">--</span>
+              </div>
+              <div class="bar-item">
+                <span class="bar-label">p95</span>
+                <span class="bar-val" id="valP95">--</span>
+              </div>
+              <div class="bar-item">
+                <span class="bar-label">p99</span>
+                <span class="bar-val" id="valP99">--</span>
+              </div>
+              <div class="bar-item">
+                <span class="bar-label">Max</span>
+                <span class="bar-val" id="valMax">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Raw output collapsible -->
+          <details class="raw-output-collapse">
+            <summary>檢視 Grafana k6 原生執行記錄 (Console Output)</summary>
+            <pre class="raw-k6-output" id="rawK6Output">--</pre>
+          </details>
+        </div>
+      </section>
+
+
+      <!-- ================= TAB 3: Markdown API 規格書 ================= -->
+      <section class="tab-pane" id="tab-specs">
+        <div class="specs-layout">
+          <!-- Left: Spec List -->
+          <div class="specs-sidebar">
+            <div class="sidebar-header">
+              <h3>規格檔案清單 (`specs/*.api.md`)</h3>
+              <button class="small-accent-btn" id="newSpecBtn">+ 新增規格</button>
+            </div>
+            <div class="spec-file-list" id="specFileList">
+              <div class="loading-state">讀取規格檔案...</div>
+            </div>
+          </div>
+
+          <!-- Right: Markdown Spec Editor -->
+          <div class="specs-editor-pane">
+            <div class="editor-toolbar">
+              <div class="active-spec-name" id="activeSpecFilename">未選取檔案</div>
+              <div class="toolbar-actions">
+                <button class="secondary-btn" id="saveSpecBtn">💾 儲存修改</button>
+                <button class="primary-btn" id="reloadSpecsBtn">⚡ 即時熱加載 (Hot-Reload)</button>
+              </div>
+            </div>
+            <textarea class="spec-markdown-editor" id="specContentEditor" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ================= TAB 4: 凍結合約代碼 ================= -->
+      <section class="tab-pane" id="tab-contracts">
+        <div class="contracts-header">
+          <div>
+            <h3>自動編譯合約檔案 (Generated AST Contracts)</h3>
+            <p class="text-dim">當路由達到穩定門檻凍結後，JIT 引擎自動產出的跨語言型態定義與驗證器</p>
+          </div>
+          <div class="contract-lang-selector">
+            <button class="lang-tab active" data-lang="typescript">TypeScript (Zod)</button>
+            <button class="lang-tab" data-lang="python">Python (Pydantic)</button>
+            <button class="lang-tab" data-lang="golang">Go (Protobuf)</button>
+          </div>
+        </div>
+
+        <div class="contract-code-card">
+          <div class="code-card-header">
+            <span id="contractFilePath">generated/typescript/create_order.ts</span>
+            <button class="small-text-btn" id="copyContractBtn">複製代碼</button>
+          </div>
+          <pre class="contract-code-view" id="contractCodeView">點擊上方分頁檢視產出代碼...</pre>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>JIT Protocol Synthesis Framework &copy; 2026. Powered by TypeSafe & Needle.</span>
+      <span>API Gateway: <code>http://127.0.0.1:3005/api/jit</code></span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

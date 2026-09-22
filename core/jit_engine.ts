@@ -243,6 +243,10 @@ export class JITEngine {
     return this.router;
   }
 
+  public getRoutes(): RouteDefinition[] {
+    return this.router.getRoutes();
+  }
+
   public getObserver(): SchemaObserver {
     return this.observer;
   }

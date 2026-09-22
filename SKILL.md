@@ -67,17 +67,60 @@ AI Agent 在擴充程式碼生成支援時，**嚴禁憑空捏造未經驗證的
 - 當業務需求變動、Client 發送新欄位時，不要手動修改 Phase 3 產生的檔案。
 - 讓 Client 直接發送新 Payload，框架會自動觸發 `FallbackHandler` 降級至 Phase 1，並重啟 Phase 2 收集新的穩定資料結構，自動在 `generated/` 產出更新版合約。
 
+### 規則 D：Markdown 標記式 API (MD-API) 規範與合成
+當使用者說「我寫好某個 API 的 Markdown 了」或要求新增業務端點時，AI Agent 優先在 `specs/` 下維護 `*.api.md` 規格書，無需手寫複雜程式碼：
+
+```markdown
+# API: create_order
+> 處理使用者下單與訂單成立
+
+## Intent
+User wants to buy, purchase, checkout or order items and products
+
+## Fields
+- item: string (購買商品)
+- amount: number (結帳金額)
+- paymentMethod: enum (付款方式)
+  - CREDIT_CARD: 信用卡
+  - LINE_PAY: 行動支付
+
+## Logic
+\`\`\`javascript
+return {
+  order_id: "ORD-" + Math.floor(Math.random() * 900000 + 100000),
+  status: "CONFIRMED",
+  item: payload.item,
+  amount: Number(payload.amount || 0),
+  paymentMethod: payload.paymentMethod
+};
+\`\`\`
+```
+
+- 伺服器與 `MDLoader` 會自動動態掃描 `specs/` 目錄並即時掛載。
+- 前端 Web 儀表板支援在線編輯與一鍵「⚡ 即時熱加載 (Hot-Reload)」。
+
 ---
 
 ## 3. 常見任務快速指令
 
-- **執行完整端到端演示**：
+- **一鍵啟動伺服器與可視化 Web 儀表板**：
+  ```bash
+  ./run.sh
+  ```
+- **執行完整端到端生命週期演示**：
   ```bash
   npm run demo
+  npm run demo:needle
+  npm run demo:py
   ```
-- **執行單元測試**：
+- **執行 Grafana k6 壓力測試**：
+  ```bash
+  ./bin/k6 run benchmark/k6_stress_test.js
+  ```
+- **執行自動化測試**：
   ```bash
   npm test
+  npm run test:py
   ```
 - **編譯專案**：
   ```bash
