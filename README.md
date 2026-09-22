@@ -97,15 +97,41 @@ TYPESAFE_API_KEY=your_typesafe_api_key_here
 
 ### 3. 執行完整端到端生命週期演示
 ```bash
+# TypeScript 雲端 TypeSafe 演示
 npm run demo
+
+# TypeScript 本地 Needle 離線降級演示 (無金鑰模式)
+npm run demo:needle
+
+# Python (Pydantic Fast-Path) 演示
+npm run demo:py
 ```
 
 ### 4. 執行自動化測試
 ```bash
+# 執行 TypeScript 測試 (Vitest)
 npm test
+
+# 執行 Python 測試 (Pytest, conda toby 環境)
+npm run test:py
 ```
 
-### 5. 建置專案
+### 5. 執行 Server 與 Client 範例
+詳見完整文件 [docs/README.md](file:///home/toby/documents/projects/jit-api/docs/README.md)：
+* **[Server 端整合指南](file:///home/toby/documents/projects/jit-api/docs/server_guide.md)**
+* **[Client 端調用指南](file:///home/toby/documents/projects/jit-api/docs/client_guide.md)**
+
+```bash
+# 啟動 TypeScript (Express) 伺服器與客戶端測試
+npm run example:ts:server
+npm run example:ts:client
+
+# 啟動 Python (FastAPI) 伺服器與客戶端測試
+npm run example:py:server
+npm run example:py:client
+```
+
+### 6. 建置專案
 ```bash
 npm run build
 ```

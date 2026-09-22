@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jit-api"
+version = "1.0.0"
+description = "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev) and Needle"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "requests>=2.28.0",
+    "python-dotenv>=1.0.0",
+    "cactus-needle>=3.0.0",
+]
+
+[project.optional-dependencies]
+fastapi = ["fastapi>=0.100.0", "uvicorn>=0.20.0"]
+test = ["pytest>=7.0.0", "pytest-asyncio>=0.20.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jit_api*"]
