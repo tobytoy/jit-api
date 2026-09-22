@@ -5,6 +5,18 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "jit-api": "bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "bin/cli.js",
+    "public",
+    "specs",
+    "benchmark",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch index.ts",

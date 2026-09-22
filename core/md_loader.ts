@@ -20,11 +20,16 @@ export interface SpecInfo {
 export class MDLoader {
   private specsDir: string;
 
-  constructor(specsDir: string = 'specs') {
-    this.specsDir = path.resolve(specsDir);
+  constructor(specsDir?: string) {
+    const defaultDir = process.env.JIT_SPECS_DIR || path.resolve(process.cwd(), 'specs');
+    this.specsDir = specsDir ? path.resolve(specsDir) : defaultDir;
     if (!fs.existsSync(this.specsDir)) {
       fs.mkdirSync(this.specsDir, { recursive: true });
     }
+  }
+
+  public getSpecsDir(): string {
+    return this.specsDir;
   }
 
   /**

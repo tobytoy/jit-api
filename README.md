@@ -15,6 +15,50 @@
 
 ---
 
+## 🚀 快速開始 (Quick Start)
+
+三種啟動方式，任選一種即可開啟 **Web 視覺化控制台 + 規格編輯器 + k6 壓測 + 內建終端機 + MCP 協定**：
+
+### 方式 A：NPX 一鍵執行（推薦，隨處可用、零污染）
+在任何專案目錄下：
+```bash
+# 初始化 specs/ 規格目錄與範例
+npx jit-api init
+
+# 啟動 Web 控制台與 JIT 動態合成伺服器 (http://localhost:3005)
+npx jit-api
+```
+
+### 方式 B：Docker 一鍵運行（針對完全不想裝 Node/Python 的人）
+```bash
+# 使用 Docker Compose
+docker compose up -d
+
+# 或使用 Docker CLI (自動掛載本地 specs 目錄)
+docker run -d -p 3005:3005 -v $(pwd)/specs:/app/specs jit-api
+```
+*詳細說明請參閱 [Docker 一鍵運行指南](file:///home/toby/documents/projects/jit-api/docs/docker_guide.md)*
+
+### 方式 C：Python 原生 SDK 安裝（PyPI 官方套件）
+```bash
+pip install jit-protocol
+```
+```python
+from jit_api import JITEngine
+
+engine = JITEngine()
+# 立即開始動態協定合成與自動凍結
+```
+
+### 方式 D：本地原始碼開發
+```bash
+git clone https://github.com/your-username/jit-api.git
+cd jit-api
+./run.sh
+```
+
+---
+
 ## 🏗️ 架構生命週期 (Lifecycle Phases)
 
 ```mermaid

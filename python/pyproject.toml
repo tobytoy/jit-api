@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jit-api"
+name = "jit-protocol"
 version = "1.0.0"
 description = "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev) and Needle"
 readme = "README.md"

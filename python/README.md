@@ -22,12 +22,12 @@
 
 ## 🚀 快速上手 (Quick Start)
 
-### 執行環境 (Conda `toby`)
+### 1. 安裝套件
 ```bash
-conda activate toby
+pip install jit-protocol
 ```
 
-### 宣告端點與執行
+### 2. 宣告端點與執行
 ```python
 import asyncio
 from jit_api import JITEngine

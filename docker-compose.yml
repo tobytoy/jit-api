@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  jit-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jit-api-studio
+    ports:
+      - "3005:3005"
+    volumes:
+      - ./specs:/app/specs
+    environment:
+      - PORT=3005
+      - JIT_SPECS_DIR=/app/specs
+      # Optional: set TYPESAFE_API_KEY if using cloud engine
+      - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+    restart: unless-stopped

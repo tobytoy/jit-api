@@ -247,5 +247,10 @@ Thumbs.db
 *.swp
 *.swo
 
-
-
+# Agents Customizations & Local Secrets
+.agents/
+.agent/
+_agents/
+_agent/
+*.token
+*.secret
