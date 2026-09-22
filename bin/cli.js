@@ -57,6 +57,7 @@ Commands:
 Options:
   --port <number>   指定伺服器連接埠 (dev 預設 3005, prod 預設 3000)
   --specs <path>    指定 Markdown API 規格目錄 (預設: ./specs)
+  --headless        關閉 Web Dashboard，以純 API Gateway 運作
   -h, --help        顯示說明資訊
   -v, --version     顯示版本資訊
 `);
@@ -101,7 +102,11 @@ if (command === 'rollback') {
     const res = loader.rollback(version, tempEngine);
     console.log(`\n🔄 [ROLLBACK] 降版成功！已成功還原至版本：${res.version}`);
     console.log(`   - 📝 成功還原規格數量: ${res.restoredCount} 支`);
-    console.log(`   - 🚀 若生產伺服器正在運行，已即時無痛熱加載生效！`);
+    if (res.orphanedCount > 0) {
+      console.log(`   - 📦 隔離備份孤兒規格: ${res.orphanedCount} 支`);
+      console.log(`     (存放於: ${res.orphanedBackupDir})`);
+    }
+    console.log(`   - 🚀 若生產伺服器正在運行，已即時無痛熱加載生效！\n`);
   } catch (err) {
     console.error(`❌ 回滾失敗:`, err.message);
     process.exit(1);
@@ -172,8 +177,9 @@ return {
 
 // Server Mode Setup: Dev vs Prod
 const isProd = command === 'prod' || command === 'start' || process.env.NODE_ENV === 'production';
+const isHeadless = args.includes('--headless') || args.includes('--no-dashboard');
 const defaultPort = isProd ? 3000 : 3005;
-const PORT = parseInt(getArg('--port', process.env.PORT || String(defaultPort)), 10);
+let PORT = parseInt(getArg('--port', process.env.PORT || String(defaultPort)), 10);
 const stageFilter = isProd ? 'prod' : 'all';
 
 // Ensure specs dir exists in user's cwd
@@ -219,10 +225,25 @@ const app = express();
 app.use(express.json());
 app.use(express.text({ type: ['text/plain', 'text/markdown'] }));
 
-// Serve frontend dashboard from packageRoot/public
+// Serve frontend dashboard from packageRoot/public unless --headless
 const publicDir = path.join(packageRoot, 'public');
-if (fs.existsSync(publicDir)) {
+if (!isHeadless && fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));
+} else if (isHeadless) {
+  app.get('/', (req, res) => {
+    res.json({
+      name: 'JIT Protocol Synthesis Gateway',
+      status: 'online',
+      mode: isProd ? 'prod' : 'dev',
+      headless: true,
+      endpoints: {
+        jit: '/api/jit',
+        routes: '/api/routes',
+        mcp: '/sse',
+        info: '/api/info',
+      },
+    });
+  });
 }
 
 // 1. 初始化 JIT 引擎
@@ -240,23 +261,29 @@ const engine = new JITEngine({
 // 2. 初始化自適應 MDLoader (依模式篩選 stage)
 const mdLoader = new MDLoader(specsDir);
 const loadedSpecs = mdLoader.loadAll(engine, stageFilter);
-if (!isProd) {
-  mdLoader.watch(engine, undefined, stageFilter);
-}
 
-// 3. 掛載 MCP Server (SSE)
-MCPAdapter.attachToExpress(app, engine, mdLoader, '/sse', '/messages');
+// 3. 掛載 MCP Server (SSE) - pass isProd, PORT, and stageFilter
+MCPAdapter.attachToExpress(app, engine, mdLoader, '/sse', '/messages', isProd, PORT, stageFilter);
 
 // 4. Benchmark Runner
 const benchRunner = new BenchmarkRunner();
 
 // ================= API Endpoints =================
 app.get('/api/info', (req, res) => {
+  let pkgVersion = '1.1.0';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf-8'));
+    pkgVersion = pkg.version;
+  } catch {}
+
+  const currentPort = server.address() && typeof server.address() === 'object' ? server.address().port : PORT;
+
   res.json({
     name: 'JIT Protocol Synthesis Studio',
-    version: '2.0.0',
+    version: pkgVersion,
     mode: isProd ? 'prod' : 'dev',
-    port: PORT,
+    headless: isHeadless,
+    port: currentPort,
     engine: process.env.TYPESAFE_API_KEY ? 'typesafe' : 'needle',
     routesCount: engine.getRoutes().length,
     specsDir: mdLoader.getSpecsDir(),
@@ -389,27 +416,60 @@ app.get('/api/contracts', (req, res) => {
 });
 
 // 啟動伺服器與 Web Terminal (Prod 模式停用 Terminal 以保障系統資安)
-const server = http.createServer(app);
-if (!isProd) {
-  new TerminalServer(server, '/ws/terminal');
+let server;
+
+function startServer(portToTry, maxRetries = 10) {
+  const currentServer = http.createServer(app);
+  if (!isProd) {
+    new TerminalServer(currentServer, '/ws/terminal');
+  }
+
+  currentServer.once('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      if (maxRetries > 0) {
+        console.warn(`\n⚠️  [Port 衝突] 連接埠 ${portToTry} 已被佔用，正在嘗試改用 ${portToTry + 1}...`);
+        startServer(portToTry + 1, maxRetries - 1);
+      } else {
+        console.error(`\n❌ [Port 衝突] 連接埠 ${portToTry} 及其後續連接埠均已被佔用！請使用 --port 指定可用連接埠。\n`);
+        process.exit(1);
+      }
+    } else {
+      console.error('\n❌ 伺服器啟動時發生未預期錯誤:', err);
+      process.exit(1);
+    }
+  });
+
+  currentServer.listen(portToTry, () => {
+    server = currentServer;
+    PORT = portToTry;
+    console.log('='.repeat(70));
+    if (isProd) {
+      console.log(`🔒 [PROD MODE] JIT Protocol Synthesis 生產網關啟動成功！`);
+      console.log(`   - 🚀 高吞吐靜態 API 入口:  http://localhost:${PORT}/api/jit`);
+      console.log(`   - 🛡️ 安全狀態:              Web Terminal 已停用, 規格修改已封鎖`);
+      console.log(`   - 🏷️ API Stage 篩選:        僅載入 Stage: prod 規格`);
+      console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支`);
+      if (isHeadless) {
+        console.log(`   - ⚡ 運作模式:              純 API Gateway (--headless, 無 Web Dashboard)`);
+      } else {
+        console.log(`   - 🌐 唯讀觀測儀表板:        http://localhost:${PORT}`);
+      }
+      console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
+    } else {
+      console.log(`🚀 [DEV MODE] JIT Protocol Synthesis Studio 開發控制台啟動成功！`);
+      if (isHeadless) {
+        console.log(`   - ⚡ 運作模式:              Headless 開發網關 (--headless)`);
+      } else {
+        console.log(`   - 🌐 前端觀測與壓測儀表板: http://localhost:${PORT}`);
+        console.log(`   - 💻 整合 Web 終端 (PTY):  http://localhost:${PORT} (底部抽屜)`);
+      }
+      console.log(`   - 📂 載入規格目錄 (CWD):   ${specsDir}`);
+      console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支 (含 Dev 草稿)`);
+      console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
+      console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
+    }
+    console.log('='.repeat(70));
+  });
 }
 
-server.listen(PORT, () => {
-  console.log('='.repeat(70));
-  if (isProd) {
-    console.log(`🔒 [PROD MODE] JIT Protocol Synthesis 生產網關啟動成功！`);
-    console.log(`   - 🚀 高吞吐靜態 API 入口:  http://localhost:${PORT}/api/jit`);
-    console.log(`   - 🛡️ 安全狀態:              Web Terminal 已停用, 規格修改已封鎖`);
-    console.log(`   - 🏷️ API Stage 篩選:        僅載入 Stage: prod 規格`);
-    console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支`);
-  } else {
-    console.log(`🚀 [DEV MODE] JIT Protocol Synthesis Studio 開發控制台啟動成功！`);
-    console.log(`   - 🌐 前端觀測與壓測儀表板: http://localhost:${PORT}`);
-    console.log(`   - 📂 載入規格目錄 (CWD):   ${specsDir}`);
-    console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支 (含 Dev 草稿)`);
-    console.log(`   - 💻 整合 Web 終端 (PTY):  http://localhost:${PORT} (底部抽屜)`);
-    console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
-    console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
-  }
-  console.log('='.repeat(70));
-});
+startServer(PORT);

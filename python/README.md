@@ -68,8 +68,8 @@ if __name__ == "__main__":
 
 ```bash
 # 執行全套 pytest 測試
-PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/pytest python/tests/ -v
+PYTHONPATH=python pytest python/tests/ -v
 
 # 執行端到端生命週期演示
-PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/python python/examples/demo_lifecycle.py
+PYTHONPATH=python python3 python/examples/demo_lifecycle.py
 ```

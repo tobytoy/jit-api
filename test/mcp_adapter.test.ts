@@ -31,4 +31,19 @@ describe('Model Context Protocol (MCP) Adapter', () => {
 
     expect(mcpServer).toBeDefined();
   });
+
+  it('should only load prod routes when stageFilter is set to prod', () => {
+    const engine = new JITEngine();
+    const loader = new MDLoader('specs');
+    // specs/ contains date_converter.api.md which has Stage: dev
+    const mcpServer = MCPAdapter.createMcpServer(engine, loader, 'prod');
+
+    expect(mcpServer).toBeDefined();
+    const routeNames = engine.getRoutes().map((r) => r.route);
+    // date_converter should NOT be in routes (it is dev stage)
+    expect(routeNames).not.toContain('date_converter');
+    // create_order & process_refund should be in routes (they are prod stage)
+    expect(routeNames).toContain('create_order');
+    expect(routeNames).toContain('process_refund');
+  });
 });

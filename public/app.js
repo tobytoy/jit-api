@@ -80,7 +80,7 @@ const elements = {
 };
 
 // ================= Initialization =================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupSliders();
   setupScenarioSelector();
@@ -88,9 +88,15 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventHandlers();
 
   // Initial Data Load
-  refreshAll();
   loadDefaultPayload();
-  setupWebTerminal();
+  await refreshAll();
+
+  // Initialize terminal only if server is not in production mode
+  if (state.engineInfo && state.engineInfo.mode === 'prod') {
+    applyProdModeRestrictions();
+  } else {
+    setupWebTerminal();
+  }
 });
 
 // ================= Tab Navigation =================
@@ -251,11 +257,47 @@ async function checkServerInfo() {
     if (resp.ok) {
       const data = await resp.json();
       state.engineInfo = data;
-      elements.serverStatusText.textContent = `Server: Online (${data.port || 3005})`;
+      const isProdMode = data.mode === 'prod';
+      elements.serverStatusText.textContent = isProdMode
+        ? `Server: Online (${data.port || 3000}) 🔒 PROD`
+        : `Server: Online (${data.port || 3005}) [DEV]`;
       elements.engineStatusText.textContent = `Engine: ${data.engine === 'typesafe' ? 'TypeSafe Jev (Cloud)' : 'Needle (Local)'}`;
+
+      if (isProdMode) {
+        applyProdModeRestrictions();
+      }
     }
   } catch {
     elements.serverStatusText.textContent = 'Server: Offline';
+  }
+}
+
+function applyProdModeRestrictions() {
+  // Hide terminal drawer and close any existing WS
+  const drawer = document.getElementById('terminalDrawer');
+  if (drawer) {
+    drawer.style.display = 'none';
+  }
+  if (termWs) {
+    try {
+      termWs.onclose = null;
+      termWs.close();
+    } catch {}
+    termWs = null;
+  }
+
+  // Lock spec editing
+  if (elements.saveSpecBtn) {
+    elements.saveSpecBtn.disabled = true;
+    elements.saveSpecBtn.style.opacity = '0.45';
+    elements.saveSpecBtn.style.cursor = 'not-allowed';
+    elements.saveSpecBtn.title = '🔒 生產模式下規格已鎖定，禁止線上編輯！';
+  }
+  if (elements.newSpecBtn) {
+    elements.newSpecBtn.style.display = 'none';
+  }
+  if (elements.specContentEditor) {
+    elements.specContentEditor.setAttribute('readonly', 'true');
   }
 }
 
@@ -666,6 +708,11 @@ let termWs = null;
 let isTerminalCollapsed = false;
 
 function setupWebTerminal() {
+  if (state.engineInfo && state.engineInfo.mode === 'prod') {
+    applyProdModeRestrictions();
+    return;
+  }
+
   if (typeof window.Terminal === 'undefined') {
     console.warn('[Web Terminal] xterm.js not loaded, terminal disabled.');
     return;
@@ -803,6 +850,9 @@ function connectTerminalWebSocket() {
   };
 
   termWs.onclose = () => {
+    if (state.engineInfo && state.engineInfo.mode === 'prod') {
+      return;
+    }
     term.write('\r\n\x1b[33m[Web Terminal 已中斷連線，5 秒後自動嘗試重新連接...]\x1b[0m\r\n');
     setTimeout(connectTerminalWebSocket, 5000);
   };

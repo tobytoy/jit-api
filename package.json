@@ -1,6 +1,6 @@
 {
   "name": "jit-api",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,13 +22,13 @@
     "dev": "tsx watch index.ts",
     "demo": "tsx examples/demo_lifecycle.ts",
     "demo:needle": "tsx examples/demo_needle_fallback.ts",
-    "demo:py": "PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/python python/examples/demo_lifecycle.py",
+    "demo:py": "PYTHONPATH=python python3 python/examples/demo_lifecycle.py",
     "example:ts:server": "tsx docs/examples/ts_server.ts",
     "example:ts:client": "tsx docs/examples/ts_client.ts",
-    "example:py:server": "PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/python docs/examples/py_server.py",
-    "example:py:client": "PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/python docs/examples/py_client.py",
+    "example:py:server": "PYTHONPATH=python python3 docs/examples/py_server.py",
+    "example:py:client": "PYTHONPATH=python python3 docs/examples/py_client.py",
     "test": "vitest run",
-    "test:py": "PYTHONPATH=python /home/toby/miniconda3/envs/toby/bin/pytest python/tests/ -v"
+    "test:py": "PYTHONPATH=python pytest python/tests/ -v"
   },
   "keywords": [
     "jit",

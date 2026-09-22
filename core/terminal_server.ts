@@ -14,6 +14,9 @@ export class TerminalServer {
 
   constructor(server: http.Server, path: string = '/ws/terminal') {
     this.wss = new WebSocketServer({ server, path });
+    this.wss.on('error', () => {
+      // Ignored: HTTP server error listener handles EADDRINUSE
+    });
     this.setup();
   }
 

@@ -40,13 +40,17 @@ export class MCPAdapter {
   /**
    * Creates an McpServer instance populated with all tools from specs/*.api.md
    */
-  public static createMcpServer(engine: JITEngine, mdLoader: MDLoader): McpServer {
+  public static createMcpServer(
+    engine: JITEngine,
+    mdLoader: MDLoader,
+    stageFilter: 'all' | 'prod' | 'dev' = 'all'
+  ): McpServer {
     const mcpServer = new McpServer({
       name: 'jit-api-mcp',
-      version: '2.0.0',
+      version: '1.1.1',
     });
 
-    const specs = mdLoader.loadAll(engine);
+    const specs = mdLoader.loadAll(engine, stageFilter);
 
     for (const spec of specs) {
       const shape = this.buildZodShape(spec.fields);
@@ -92,13 +96,18 @@ export class MCPAdapter {
     engine: JITEngine,
     mdLoader: MDLoader,
     ssePath: string = '/sse',
-    messagePath: string = '/messages'
+    messagePath: string = '/messages',
+    isProd: boolean = false,
+    port: number = 3005,
+    stageFilter: 'all' | 'prod' | 'dev' = 'all'
   ): void {
     let transport: SSEServerTransport | null = null;
-    const mcpServer = this.createMcpServer(engine, mdLoader);
+    const mcpServer = this.createMcpServer(engine, mdLoader, stageFilter);
 
-    // Watch specs directory to update engine in background
-    mdLoader.watch(engine);
+    // Watch specs directory to update engine in background only in dev mode
+    if (!isProd) {
+      mdLoader.watch(engine, undefined, stageFilter);
+    }
 
     // SSE connection endpoint
     app.get(ssePath, async (req: Request, res: Response) => {
@@ -116,15 +125,19 @@ export class MCPAdapter {
     });
 
     console.log(`🤖 MCP Server (Model Context Protocol) 已掛載:`);
-    console.log(`   - SSE 連線入口: http://localhost:${process.env.PORT || 3005}${ssePath}`);
-    console.log(`   - 訊息接收入口: http://localhost:${process.env.PORT || 3005}${messagePath}`);
+    console.log(`   - SSE 連線入口: http://localhost:${port}${ssePath}`);
+    console.log(`   - 訊息接收入口: http://localhost:${port}${messagePath}`);
   }
 
   /**
    * Start MCP server over standard I/O (for Claude Desktop / Cursor CLI)
    */
-  public static async startStdio(engine: JITEngine, mdLoader: MDLoader): Promise<void> {
-    const mcpServer = this.createMcpServer(engine, mdLoader);
+  public static async startStdio(
+    engine: JITEngine,
+    mdLoader: MDLoader,
+    stageFilter: 'all' | 'prod' | 'dev' = 'all'
+  ): Promise<void> {
+    const mcpServer = this.createMcpServer(engine, mdLoader, stageFilter);
     const transport = new StdioServerTransport();
     await mcpServer.connect(transport);
   }

@@ -3,7 +3,7 @@
 JIT Protocol Synthesis - FastAPI Server Example
 
 Run with:
-  /home/toby/miniconda3/envs/toby/bin/python docs/examples/py_server.py
+  python3 docs/examples/py_server.py
 """
 
 import sys

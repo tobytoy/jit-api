@@ -157,7 +157,7 @@ User wants to send push notification
     expect(spec.samplePayload?.retryCount).toBeDefined();
   });
 
-  it('should support stage filtering, snapshot release, and rollback', () => {
+  it('should support stage filtering, snapshot release, and rollback', async () => {
     const engine = new JITEngine();
     const loader = new MDLoader('specs');
 
@@ -174,19 +174,27 @@ User wants to send push notification
     const releases = loader.listReleases();
     expect(releases.some((r) => r.version === testVer)).toBe(true);
 
-    // Rollback test
-    const rollbackResult = loader.rollback(testVer, engine);
-    expect(rollbackResult.success).toBe(true);
-    expect(rollbackResult.restoredCount).toBeGreaterThanOrEqual(2);
+    // Create an orphan spec in specs/ that does not exist in the snapshot
+    const fs = await import('fs');
+    const path = await import('path');
+    const orphanFile = path.resolve('specs', 'orphan_temp.api.md');
+    fs.writeFileSync(orphanFile, '# API: orphan_temp\nStage: dev\n', 'utf-8');
 
-    // Clean up test release dir
-    import('fs').then((fs) => {
-      import('path').then((path) => {
-        const testDir = path.resolve('.jit', 'releases', testVer);
-        if (fs.existsSync(testDir)) {
-          fs.rmSync(testDir, { recursive: true, force: true });
-        }
-      });
-    });
+    // Rollback test with orphan cleaning
+    const rollbackResult = loader.rollback(testVer, engine, 'all', { cleanOrphans: true });
+    expect(rollbackResult.success).toBe(true);
+    expect(rollbackResult.restoredCount).toBe(release.specsCount);
+    expect(rollbackResult.orphanedCount).toBe(1);
+    expect(rollbackResult.orphanedBackupDir).toBeDefined();
+    expect(fs.existsSync(orphanFile)).toBe(false);
+
+    // Clean up test release dir and orphaned dir
+    const testDir = path.resolve('.jit', 'releases', testVer);
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+    if (rollbackResult.orphanedBackupDir && fs.existsSync(rollbackResult.orphanedBackupDir)) {
+      fs.rmSync(rollbackResult.orphanedBackupDir, { recursive: true, force: true });
+    }
   });
 });

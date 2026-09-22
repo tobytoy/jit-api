@@ -246,9 +246,21 @@ export class MDLoader {
   }
 
   /**
-   * Instant rollback: restore specs from an archived version release and hot-reload engine
+   * Instant rollback: restore specs from an archived version release and hot-reload engine.
+   * Cleans and backs up orphaned specs that exist in specsDir but are not in the snapshot.
    */
-  public rollback(version: string, engine: JITEngine, filterStage?: 'all' | 'prod' | 'dev'): { success: boolean; version: string; restoredCount: number } {
+  public rollback(
+    version: string,
+    engine: JITEngine,
+    filterStage?: 'all' | 'prod' | 'dev',
+    options: { cleanOrphans?: boolean } = { cleanOrphans: true }
+  ): {
+    success: boolean;
+    version: string;
+    restoredCount: number;
+    orphanedCount: number;
+    orphanedBackupDir?: string;
+  } {
     const cleanVersion = version.startsWith('v') ? version : `v${version}`;
     const targetDir = path.join(this.releasesDir, cleanVersion);
 
@@ -256,25 +268,52 @@ export class MDLoader {
       throw new Error(`找不到版本快照目錄: ${cleanVersion}`);
     }
 
-    const files = fs.readdirSync(targetDir).filter((f) => (f.endsWith('.api.md') || f.endsWith('.md')) && f !== 'manifest.json');
-    if (files.length === 0) {
+    const snapshotFiles = fs
+      .readdirSync(targetDir)
+      .filter((f) => (f.endsWith('.api.md') || f.endsWith('.md')) && f !== 'manifest.json');
+    if (snapshotFiles.length === 0) {
       throw new Error(`版本 ${cleanVersion} 快照中無任何規格檔案。`);
     }
 
+    // Identify orphaned specs currently in specsDir that are NOT in the target snapshot
+    const currentSpecs = fs.existsSync(this.specsDir)
+      ? fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.md'))
+      : [];
+    const snapshotFileSet = new Set(snapshotFiles);
+    const orphanedFiles = currentSpecs.filter((f) => !snapshotFileSet.has(f));
+
+    let orphanedBackupDir: string | undefined;
+
+    // Isolate & archive orphaned specs if cleanOrphans is true
+    if (options.cleanOrphans && orphanedFiles.length > 0) {
+      orphanedBackupDir = path.join(this.releasesDir, `orphaned_${Date.now()}`);
+      if (!fs.existsSync(orphanedBackupDir)) {
+        fs.mkdirSync(orphanedBackupDir, { recursive: true });
+      }
+
+      for (const orphan of orphanedFiles) {
+        const src = path.join(this.specsDir, orphan);
+        const dest = path.join(orphanedBackupDir, orphan);
+        fs.renameSync(src, dest);
+      }
+    }
+
     // Copy snapshot files back to specsDir
-    for (const file of files) {
+    for (const file of snapshotFiles) {
       const src = path.join(targetDir, file);
       const dest = path.join(this.specsDir, file);
       fs.copyFileSync(src, dest);
     }
 
     // Hot-reload into engine
-    const reloaded = this.reload(engine, filterStage);
+    this.reload(engine, filterStage);
 
     return {
       success: true,
       version: cleanVersion,
-      restoredCount: reloaded.length,
+      restoredCount: snapshotFiles.length,
+      orphanedCount: orphanedFiles.length,
+      orphanedBackupDir,
     };
   }
 }

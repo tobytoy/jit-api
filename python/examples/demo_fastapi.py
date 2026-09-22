@@ -2,7 +2,7 @@
 """
 FastAPI + JIT Protocol Synthesis Integration Example.
 Run with:
-    /home/toby/miniconda3/envs/toby/bin/uvicorn python.examples.demo_fastapi:app --reload --port 8080
+    uvicorn python.examples.demo_fastapi:app --reload --port 8080
 """
 
 from contextlib import asynccontextmanager

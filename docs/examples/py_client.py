@@ -6,7 +6,7 @@ Demonstrates how client interacts with JIT Server across:
   Phase 1 (Dynamic) ➔ Phase 2 (Observing) ➔ Phase 3 (Fast-Path) ➔ Schema Drift Fallback
 
 Run with:
-  /home/toby/miniconda3/envs/toby/bin/python docs/examples/py_client.py
+  python3 docs/examples/py_client.py
 """
 
 import json
