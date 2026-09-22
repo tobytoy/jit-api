@@ -80,8 +80,9 @@ return {
 | `## Intent` | 告訴 AI 引擎該端點接收什麼自然語言意圖 | **必填** | `User wants to refund or return items` |
 | `## Fields` | 接收的欄位清單與型態註解 | 選填 | `- amount: number (退款金額)` |
 | 列舉縮排 | 在 enum 欄位下縮排條列選項與說明 | 搭配 enum | `  - URGENT: 緊急案件` |
-| `## Sample` | 測試範例（含自然語言語意字串與 JSON Payload） | **強烈推薦** | 前端控制台與壓測引擎自動動態帶入 |
-| `## Logic` | JavaScript/TypeScript 業務處理程式碼區塊 | 建議填寫 | 取得 `payload` 與 `ctx`，回傳結果物件 |
+| `## Auth` | 規格級鑑權驗證 (支援 bearer 與 api-key) | 選填 (v1.2.0+) | `type: bearer` 或 `type: api-key` |
+| `## Sample` | 測試範例（含自然語言語意字串與 JSON Payload） | **強烈推薦** | 前端控制台、壓測與 test 套件動態帶入 |
+| `## Logic` | JavaScript/TypeScript 業務處理程式碼區塊 | 建議填寫 | 運行於 `node:vm` 沙盒隔離環境 |
 | `## Mock` | 若尚未寫業務代碼，可直接給予 Mock JSON | 與 Logic 擇一 | ````json\n{"status": "SUCCESS"}\n```` |
 
 > [!TIP]
@@ -254,5 +255,48 @@ npx jit-api rollback 1.0.0
 * **零停機熱替換 (Zero-Downtime)**：
   1. 系統瞬間自 `.jit/releases/v1.0.0/` 還原正確版本的規格。
   2. JIT 引擎在 **0.2 秒** 內無縫熱加載記憶體中的路由與邏輯。
-  3. **服務完全不中斷、連線不被重置、無須重啟伺服器進程**！
+   3. **服務完全不中斷、連線不被重置、無須重啟伺服器進程**！
 
+---
+
+## 9. v1.2.0 企業級安全架構與自動化測試 (Enterprise Security & Testing)
+
+### 9.1 S1 & U2: `node:vm` 隔離沙盒與真實行號定位
+* **資安防線**：`## Logic` 代碼不再以自由權限的 `new Function` 執行，而是運行於 `node:vm` 隔離沙盒。
+  - 阻斷 `process`、`process.env`，防止伺服器環境變數外洩。
+  - 封鎖 `require`、`import`、動態字串代碼生成（`eval`），杜絕 RCE 遠端指令注入。
+  - 設定 **3000ms 執行超時**，防止 `while(true)` 無限迴圈導致伺服器 Event Loop 假死。
+* **真實行號對齊**：透過 `vm.Script` 的 `lineOffset` 與 `filename`，執行期報錯的 Stack Trace 會精確指向 Markdown 原始檔案的對應行號（例如 `order.api.md:32`），開發者可直接於 IDE 點擊跳轉。
+
+### 9.2 S2: 規格級宣告式鑑權 (`## Auth`)
+可在規格中直接宣告驗證規則，不符規則者於進入 `## Logic` 前即被阻絕並回傳 HTTP 401：
+
+* **Bearer Token 範例**：
+  ```markdown
+  ## Auth
+  type: bearer
+  token: sk-jit-secret-token
+  ```
+* **自訂 Header 與環境變數範例**：
+  ```markdown
+  ## Auth
+  type: api-key
+  header: x-service-key
+  envVar: PROD_SERVICE_KEY
+  ```
+
+### 9.3 S3: Prod 模式物理隔離
+生產模式下，後端 Express 路由表會徹底移除 `/api/specs*`、`/api/contracts`、`/api/releases` 以及 `/api/bench/k6`，攻擊者無法透過 `curl` 等工具探測規格原始碼。
+
+### 9.4 S4: 快照 SHA-256 簽名與防篡改降版
+* 每次執行 `npx jit-api release <version>` 時，系統會自動計算所有規格檔案的 SHA-256 雜湊並寫入 `manifest.json`。
+* 執行 `npx jit-api rollback <version>` 時，系統於還原前逐一比對檔案雜湊，若快照曾遭竄改將立即拋出 `[Security Alert]` 並中斷降版操作。
+
+### 9.5 U3: `npx jit-api test` 一鍵自動化規格測試套件
+無需額外撰寫測試程式碼，直接根據 `specs/*.api.md` 內的 `## Sample` 定義執行端到端檢驗：
+```bash
+npx jit-api test
+```
+* **Fast-Path 檢驗**：使用 `samplePayload` 驗證 Phase 3 快速路徑與邏輯正確性。
+* **語意意圖檢驗**：使用 `sampleSemantic` 驗證 Phase 1 自然語言意圖辨識與欄位正規化。
+* **彩色報表產出**：即時輸出每支規格的測試狀態、耗時與斷言統計。

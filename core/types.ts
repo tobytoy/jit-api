@@ -79,12 +79,28 @@ export interface JevResponse {
   };
 }
 
+export interface AuthDefinition {
+  type: 'none' | 'bearer' | 'api-key';
+  header?: string;
+  token?: string;
+  envVar?: string;
+}
+
+export class UnauthorizedError extends Error {
+  public statusCode: number = 401;
+  constructor(message: string = 'Unauthorized: invalid or missing authentication credentials') {
+    super(message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 export interface RouteDefinition {
   route: string;
   description: string;
   intentCriteria: string;
   version?: string;
   stage?: 'dev' | 'prod';
+  auth?: AuthDefinition;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
   enumFields?: Record<string, Record<string, string>>;
@@ -108,6 +124,7 @@ export interface JITRequestContext {
   intentConfidence?: number;
   isFallback?: boolean;
   engineUsed?: 'typesafe' | 'needle';
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 export interface JITExecutionResult<T = any> {
@@ -116,3 +133,4 @@ export interface JITExecutionResult<T = any> {
   error?: string;
   context: JITRequestContext;
 }
+

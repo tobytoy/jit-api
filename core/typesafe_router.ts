@@ -1,11 +1,12 @@
 import { NeedleClient, NeedleClientConfig } from './needle_client.js';
 import { TypeSafeClient } from './typesafe_client.js';
 import {
+  JITRequestContext,
   JevChoiceAnswer,
   JevNoulAnswer,
   JevQuestion,
-  JITRequestContext,
   RouteDefinition,
+  UnauthorizedError,
 } from './types.js';
 
 export interface TypeSafeRouterOptions {
@@ -59,9 +60,62 @@ export class TypeSafeRouter {
   }
 
   /**
+   * Validate authentication credentials against route definition
+   */
+  public static validateAuth(
+    routeDef: RouteDefinition,
+    headers?: Record<string, string | string[] | undefined>
+  ): void {
+    const auth = routeDef.auth;
+    if (!auth || auth.type === 'none') {
+      return;
+    }
+
+    const headerName = (auth.header || (auth.type === 'bearer' ? 'authorization' : 'x-api-key')).toLowerCase();
+
+    let headerValue: string | undefined;
+    if (headers) {
+      for (const [k, v] of Object.entries(headers)) {
+        if (k.toLowerCase() === headerName) {
+          headerValue = Array.isArray(v) ? v[0] : v;
+          break;
+        }
+      }
+    }
+
+    if (!headerValue) {
+      throw new UnauthorizedError(
+        `Authentication required: missing header '${headerName}' for route '${routeDef.route}'`
+      );
+    }
+
+    const expectedToken = auth.token || (auth.envVar ? process.env[auth.envVar] : undefined);
+
+    if (auth.type === 'bearer') {
+      const match = headerValue.match(/^Bearer\s+(.+)$/i);
+      if (!match) {
+        throw new UnauthorizedError(`Invalid Bearer token format in '${headerName}' header`);
+      }
+      const token = match[1].trim();
+      if (expectedToken && token !== expectedToken) {
+        throw new UnauthorizedError(`Invalid Bearer token for route '${routeDef.route}'`);
+      }
+    } else if (auth.type === 'api-key') {
+      const key = headerValue.trim();
+      if (expectedToken && key !== expectedToken) {
+        throw new UnauthorizedError(`Invalid API Key for route '${routeDef.route}'`);
+      }
+    }
+  }
+
+  /**
    * Phase 1: Dynamic Semantic Routing using TypeSafe Jev (Choice + Select + Noul)
    */
-  async handle(rawInput: Record<string, unknown>, preferredRoute?: string): Promise<{
+  async handle(
+    rawInput: Record<string, unknown>,
+    preferredRoute?: string,
+    headers?: Record<string, string | string[] | undefined>
+  ): Promise<{
     route: string;
     normalizedPayload: Record<string, unknown>;
     result: any;
@@ -93,7 +147,11 @@ export class TypeSafeRouter {
         aiLatencyMs: needleRes.latencyMs,
         intentConfidence: needleRes.confidence,
         engineUsed: 'needle',
+        headers,
       };
+
+      // Validate authentication before handler execution
+      TypeSafeRouter.validateAuth(routeDef, headers);
 
       const result = await routeDef.handler(needleRes.normalizedPayload, context);
 
@@ -188,9 +246,13 @@ export class TypeSafeRouter {
       aiLatencyMs: latencyMs,
       intentConfidence,
       engineUsed: 'typesafe',
+      headers,
     };
 
-    // 7. Invoke handler
+    // 7. Validate authentication before handler execution
+    TypeSafeRouter.validateAuth(routeDef, headers);
+
+    // 8. Invoke handler
     const result = await routeDef.handler(normalizedPayload, context);
 
     return {

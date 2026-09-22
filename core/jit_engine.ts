@@ -150,7 +150,8 @@ export class JITEngine {
    */
   public async execute(
     payload: Record<string, unknown>,
-    explicitRoute?: string
+    explicitRoute?: string,
+    headers?: Record<string, string | string[] | undefined>
   ): Promise<JITExecutionResult> {
     const startTime = Date.now();
     const targetRoute =
@@ -164,6 +165,9 @@ export class JITEngine {
       const routeDef = this.router.getRoute(targetRoute);
 
       if (validator && routeDef) {
+        // Enforce route authentication in Phase 3
+        TypeSafeRouter.validateAuth(routeDef, headers);
+
         // Run static fast-path validation (0ms AI latency)
         const validation = validator(payload);
 
@@ -176,6 +180,7 @@ export class JITEngine {
             aiLatencyMs: 0, // 0 AI latency!
             intentConfidence: 1.0,
             isFallback: false,
+            headers,
           };
 
           const data = await routeDef.handler(validation.data, ctx);
@@ -202,8 +207,8 @@ export class JITEngine {
       }
     }
 
-    // Phase 1: Dynamic Semantic Routing via TypeSafe Jev
-    const res = await this.router.handle(payload, targetRoute);
+    // Phase 1: Dynamic Semantic Routing via TypeSafe Jev (validates auth after route matching)
+    const res = await this.router.handle(payload, targetRoute, headers);
 
     // Phase 2: Observation & Stability tracking
     const obs = await this.observer.observe(

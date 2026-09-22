@@ -26,7 +26,7 @@ try {
   coreModules = await import('../core/index.js');
 }
 
-const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer } = coreModules;
+const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer, SpecTestRunner } = coreModules;
 
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith('-') ? args[0] : 'dev';
@@ -49,9 +49,10 @@ Usage:
 
 Commands:
   dev               啟動開發模式：含 Web Studio、PTY 終端、動態熱重載 (預設, Port: 3005)
-  start | prod      啟動生產模式：高效 API Gateway、安全防護 (停用終端、唯讀規格, Port: 3000)
-  release <version> 建立當前 Markdown 規格之版本快照 (例: npx jit-api release 1.0.0)
-  rollback <version>秒級無縫回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
+  start | prod      啟動生產模式：高效 API Gateway、安全防護 (停用終端、物理隔離規格, Port: 3000)
+  test              自動化執行 specs/ 中所有 ## Sample 測試範例 (例: npx jit-api test)
+  release <version> 建立當前 Markdown 規格之版本快照與 SHA-256 簽名 (例: npx jit-api release 1.0.0)
+  rollback <version>驗簽並秒級回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
   init              在當前專案目錄建立 specs/ 規格目錄與範本
 
 Options:
@@ -71,6 +72,48 @@ if (args.includes('--version') || args.includes('-v')) {
 }
 
 const specsDir = path.resolve(process.cwd(), getArg('--specs', process.env.JIT_SPECS_DIR || 'specs'));
+
+// Command: test
+if (command === 'test') {
+  console.log('🧪 JIT API 規格自動化測試套件 (Spec Test Runner)\n' + '='.repeat(60));
+  console.log(`📂 載入規格目錄: ${specsDir}`);
+  const runner = new SpecTestRunner(specsDir);
+  try {
+    const report = await runner.runAll();
+    console.log(`📝 共掃描到 ${report.totalSpecs} 支 API 規格檔案：\n`);
+
+    for (const item of report.items) {
+      const parts = [];
+      if (item.hasPayload) {
+        parts.push(item.payloadPassed ? '✓ Fast-Path' : '✗ Fast-Path');
+      }
+      if (item.hasSemantic) {
+        parts.push(item.semanticPassed ? '✓ 語意辨識' : '✗ 語意辨識');
+      }
+      const isOk = (!item.hasPayload || item.payloadPassed) && (!item.hasSemantic || item.semanticPassed);
+      const icon = isOk ? '✅' : '❌';
+      console.log(`  ${icon} [${item.route}] (${item.filename}) - ${parts.join(', ')} [${item.durationMs}ms]`);
+
+      if (item.payloadError) {
+        console.error(`     ⚠️ Payload 測試失敗: ${item.payloadError}`);
+      }
+      if (item.semanticError) {
+        console.error(`     ⚠️ 語意辨識測試失敗: ${item.semanticError}`);
+      }
+    }
+
+    console.log('\n' + '='.repeat(60));
+    console.log(`📊 測試總結: ${report.passedSpecs} 支通過, ${report.failedSpecs} 支失敗 (共 ${report.passedAssertions}/${report.totalAssertions} 個斷言通過) | 總耗時: ${report.durationMs}ms\n`);
+
+    if (report.failedSpecs > 0) {
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('❌ 測試執行錯誤:', err.message);
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 // Command: release <version>
 if (command === 'release') {
@@ -307,9 +350,12 @@ app.get('/api/routes', (req, res) => {
 
 app.post('/api/jit', async (req, res) => {
   try {
-    const result = await engine.execute(req.body);
+    const result = await engine.execute(req.body, undefined, req.headers);
     res.json(result);
   } catch (err) {
+    if (err.name === 'UnauthorizedError' || err.statusCode === 401) {
+      return res.status(401).json({ error: err.message, status: 401 });
+    }
     res.status(400).json({ error: err.message });
   }
 });
@@ -318,102 +364,102 @@ app.get('/api/jit/status/:route', (req, res) => {
   res.json(engine.getRouteStatus(req.params.route));
 });
 
-app.get('/api/specs', (req, res) => {
-  res.json(mdLoader.listSpecs(stageFilter));
-});
+// Spec Management, Contract & Release APIs (Only registered in Dev mode for physical security isolation)
+if (!isProd) {
+  app.get('/api/specs', (req, res) => {
+    res.json(mdLoader.listSpecs(stageFilter));
+  });
 
-app.get('/api/specs/:file', (req, res) => {
-  try {
-    const content = mdLoader.getSpecContent(req.params.file);
-    res.type('text/markdown').send(content);
-  } catch (err) {
-    res.status(404).send(err.message);
-  }
-});
+  app.get('/api/specs/:file', (req, res) => {
+    try {
+      const content = mdLoader.getSpecContent(req.params.file);
+      res.type('text/markdown').send(content);
+    } catch (err) {
+      res.status(404).send(err.message);
+    }
+  });
 
-app.post('/api/specs/:file', (req, res) => {
-  if (isProd) {
-    return res.status(403).json({ error: '生產模式 (Prod) 下禁止透過 HTTP 線上修改 API 規格！請在 Dev 模式修改並驗證後發布。' });
-  }
-  try {
-    const content = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    mdLoader.saveSpec(req.params.file, content);
-    res.json({ success: true, file: req.params.file });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.post('/api/specs/:file', (req, res) => {
+    try {
+      const content = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      mdLoader.saveSpec(req.params.file, content);
+      res.json({ success: true, file: req.params.file });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.post('/api/specs/reload', (req, res) => {
-  try {
-    const reloaded = mdLoader.reload(engine, stageFilter);
-    res.json({ success: true, count: reloaded.length, routes: reloaded.map((s) => s.route) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.post('/api/specs/reload', (req, res) => {
+    try {
+      const reloaded = mdLoader.reload(engine, stageFilter);
+      res.json({ success: true, count: reloaded.length, routes: reloaded.map((s) => s.route) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-// Release Management API
-app.get('/api/releases', (req, res) => {
-  res.json(mdLoader.listReleases());
-});
+  app.get('/api/contracts', (req, res) => {
+    const lang = req.query.lang || 'typescript';
+    const fileMap = {
+      typescript: path.join(packageRoot, 'generated/typescript/create_order.ts'),
+      python: path.join(packageRoot, 'generated/python/create_order.py'),
+      golang: path.join(packageRoot, 'generated/proto/create_order.proto'),
+    };
 
-app.post('/api/releases/snapshot', (req, res) => {
-  const { version, notes } = req.body;
-  if (!version) return res.status(400).json({ error: 'Missing version parameter' });
-  try {
-    const info = mdLoader.snapshotRelease(version, notes);
-    res.json({ success: true, release: info });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const targetPath = fileMap[String(lang)] || fileMap.typescript;
+    if (fs.existsSync(targetPath)) {
+      res.type('text/plain').send(fs.readFileSync(targetPath, 'utf-8'));
+    } else {
+      res.status(404).send(`// 檔案尚未生成: ${targetPath}\n// 提示：請在「路由即時觀測」發送 3 次請求以觸發自動凍結與合約編譯。`);
+    }
+  });
 
-app.post('/api/releases/rollback', (req, res) => {
-  const { version } = req.body;
-  if (!version) return res.status(400).json({ error: 'Missing version parameter' });
-  try {
-    const info = mdLoader.rollback(version, engine, stageFilter);
-    res.json({ success: true, rollback: info });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  // Release Management API
+  app.get('/api/releases', (req, res) => {
+    res.json(mdLoader.listReleases());
+  });
 
-app.post('/api/bench/k6', async (req, res) => {
-  const options = {
-    url: `http://127.0.0.1:${PORT}/api/jit`,
-    mode: req.body.mode || 'phase3',
-    vus: Number(req.body.vus || 10),
-    duration: req.body.duration || '5s',
-    targetRoute: req.body.targetRoute,
-    samplePayload: req.body.samplePayload,
-    sampleSemantic: req.body.sampleSemantic,
-  };
+  app.post('/api/releases/snapshot', (req, res) => {
+    const { version, notes } = req.body;
+    if (!version) return res.status(400).json({ error: 'Missing version parameter' });
+    try {
+      const info = mdLoader.snapshotRelease(version, notes);
+      res.json({ success: true, release: info });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-  try {
-    const result = await benchRunner.run(options);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.post('/api/releases/rollback', (req, res) => {
+    const { version } = req.body;
+    if (!version) return res.status(400).json({ error: 'Missing version parameter' });
+    try {
+      const info = mdLoader.rollback(version, engine, stageFilter);
+      res.json({ success: true, rollback: info });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.get('/api/contracts', (req, res) => {
-  const lang = req.query.lang || 'typescript';
-  const fileMap = {
-    typescript: path.join(packageRoot, 'generated/typescript/create_order.ts'),
-    python: path.join(packageRoot, 'generated/python/create_order.py'),
-    golang: path.join(packageRoot, 'generated/proto/create_order.proto'),
-  };
+  app.post('/api/bench/k6', async (req, res) => {
+    const options = {
+      url: `http://127.0.0.1:${PORT}/api/jit`,
+      mode: req.body.mode || 'phase3',
+      vus: Number(req.body.vus || 10),
+      duration: req.body.duration || '5s',
+      targetRoute: req.body.targetRoute,
+      samplePayload: req.body.samplePayload,
+      sampleSemantic: req.body.sampleSemantic,
+    };
 
-  const targetPath = fileMap[String(lang)] || fileMap.typescript;
-  if (fs.existsSync(targetPath)) {
-    res.type('text/plain').send(fs.readFileSync(targetPath, 'utf-8'));
-  } else {
-    res.status(404).send(`// 檔案尚未生成: ${targetPath}\n// 提示：請在「路由即時觀測」發送 3 次請求以觸發自動凍結與合約編譯。`);
-  }
-});
+    try {
+      const result = await benchRunner.run(options);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
 
 // 啟動伺服器與 Web Terminal (Prod 模式停用 Terminal 以保障系統資安)
 let server;

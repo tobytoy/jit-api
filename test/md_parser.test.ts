@@ -158,26 +158,40 @@ User wants to send push notification
   });
 
   it('should support stage filtering, snapshot release, and rollback', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const testSpecsDir = path.resolve('scratch', 'loader_test_specs');
+    const testReleasesDir = path.resolve('scratch', 'loader_test_releases');
+
+    if (fs.existsSync(testSpecsDir)) fs.rmSync(testSpecsDir, { recursive: true, force: true });
+    if (fs.existsSync(testReleasesDir)) fs.rmSync(testReleasesDir, { recursive: true, force: true });
+    fs.mkdirSync(testSpecsDir, { recursive: true });
+    fs.mkdirSync(testReleasesDir, { recursive: true });
+
+    // Seed test specs
+    fs.writeFileSync(path.join(testSpecsDir, 'a.api.md'), '# API: a\nStage: prod\n## Logic\n```javascript\nreturn 1;\n```\n');
+    fs.writeFileSync(path.join(testSpecsDir, 'b.api.md'), '# API: b\nStage: dev\n## Logic\n```javascript\nreturn 2;\n```\n');
+
     const engine = new JITEngine();
-    const loader = new MDLoader('specs');
+    const loader = new MDLoader(testSpecsDir, testReleasesDir);
 
     // Test stage filtering
     const allSpecs = loader.listSpecs('all');
-    expect(allSpecs.length).toBeGreaterThanOrEqual(2);
+    expect(allSpecs.length).toBe(2);
+    const prodSpecs = loader.listSpecs('prod');
+    expect(prodSpecs.length).toBe(1);
 
     // Snapshot release
     const testVer = 'v9.9.9';
     const release = loader.snapshotRelease(testVer, 'Test release');
     expect(release.version).toBe(testVer);
-    expect(release.specsCount).toBeGreaterThanOrEqual(2);
+    expect(release.specsCount).toBe(2);
 
     const releases = loader.listReleases();
     expect(releases.some((r) => r.version === testVer)).toBe(true);
 
-    // Create an orphan spec in specs/ that does not exist in the snapshot
-    const fs = await import('fs');
-    const path = await import('path');
-    const orphanFile = path.resolve('specs', 'orphan_temp.api.md');
+    // Create an orphan spec in testSpecsDir that does not exist in the snapshot
+    const orphanFile = path.join(testSpecsDir, 'orphan_temp.api.md');
     fs.writeFileSync(orphanFile, '# API: orphan_temp\nStage: dev\n', 'utf-8');
 
     // Rollback test with orphan cleaning
@@ -188,13 +202,8 @@ User wants to send push notification
     expect(rollbackResult.orphanedBackupDir).toBeDefined();
     expect(fs.existsSync(orphanFile)).toBe(false);
 
-    // Clean up test release dir and orphaned dir
-    const testDir = path.resolve('.jit', 'releases', testVer);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-    if (rollbackResult.orphanedBackupDir && fs.existsSync(rollbackResult.orphanedBackupDir)) {
-      fs.rmSync(rollbackResult.orphanedBackupDir, { recursive: true, force: true });
-    }
+    // Clean up scratch dirs
+    if (fs.existsSync(testSpecsDir)) fs.rmSync(testSpecsDir, { recursive: true, force: true });
+    if (fs.existsSync(testReleasesDir)) fs.rmSync(testReleasesDir, { recursive: true, force: true });
   });
 });

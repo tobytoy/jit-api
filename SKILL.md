@@ -112,13 +112,20 @@ return {
 - **規格要點**：
   - `Version: 1.0.0`：宣告規格版號。
   - `Stage: dev | prod`：未成熟 API 標記 `Stage: dev`，只在開發模式加載；正式 API 標記 `Stage: prod`。
-  - `## Sample`：務必提供語意與 JSON 範例，供前端控制台與 k6 壓測引擎動態注入測試。若未填寫，系統將自動從 `## Fields` 進行智慧推導。
+  - `## Auth` (v1.2.0+)：規格級鑑權（支援 `type: bearer` 或 `type: api-key`，可配置 `header` 與 `envVar`），未授權請求直接阻擋於 Logic 外 (401)。
+  - `## Sample`：務必提供語意與 JSON 範例，供前端控制台、壓測引擎與自動化測試套件動態注入。
+  - `## Logic` (v1.2.0+)：運行於 `node:vm` 安全沙盒環境，全面隔離 `process`、`require`、`eval` 等危險 API，內建 3000ms 執行超時防死迴圈，錯誤堆疊精準對齊 Markdown 原始碼行號。
 - 伺服器與 `MDLoader` 會自動動態掃描 `specs/` 目錄並即時掛載。
 
 ---
 
 ## 3. 常見任務快速指令
 
+- **規格一鍵自動化測試 (v1.2.0+)**：
+  ```bash
+  npx jit-api test
+  # 自動載入 specs/ 內全部規格，針對 Fast-Path 與語意意圖執行端到端檢驗並產出報表
+  ```
 - **一鍵啟動開發模式 (Web 儀表板 + Terminal + 熱重載, Port 3005)**：
   ```bash
   npx jit-api dev
@@ -127,11 +134,12 @@ return {
 - **啟動生產模式 (高效純 API Gateway + 安全加固, Port 3000)**：
   ```bash
   npx jit-api start
+  # Prod 模式物理拔除 /api/specs*、/api/contracts 等端點，徹底杜絕外網探測源碼
   ```
-- **發布規格快照版本 / 線上快速回滾降版**：
+- **發布規格快照版本 / 線上快速回滾降版 (含 SHA-256 雜湊簽名防篡改)**：
   ```bash
-  npx jit-api release 1.0.0 "初次生產穩定發布"
-  npx jit-api rollback 1.0.0
+  npx jit-api release 1.2.0 "穩定發布"
+  npx jit-api rollback 1.2.0
   ```
 - **執行完整端到端生命週期演示**：
   ```bash

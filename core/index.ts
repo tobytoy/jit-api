@@ -10,6 +10,7 @@ export * from './md_loader.js';
 export * from './benchmark_runner.js';
 export * from './mcp_adapter.js';
 export * from './terminal_server.js';
+export * from './test_runner.js';
 export * from '../blocks/ast_typescript/ts_block.js';
 export * from '../blocks/ast_golang/go_block.js';
 export * from '../blocks/ast_python/py_block.js';

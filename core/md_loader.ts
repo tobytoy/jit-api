@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'node:crypto';
 import { JITEngine } from './jit_engine.js';
 import { MDParser, ParsedMDSpec } from './md_parser.js';
 
@@ -26,17 +27,17 @@ export interface ReleaseInfo {
   releasedAt: string;
   specsCount: number;
   notes?: string;
-  specs: Array<{ route: string; version?: string; filename: string }>;
+  specs: Array<{ route: string; version?: string; filename: string; sha256?: string }>;
 }
 
 export class MDLoader {
   private specsDir: string;
   private releasesDir: string;
 
-  constructor(specsDir?: string) {
+  constructor(specsDir?: string, releasesDir?: string) {
     const defaultDir = process.env.JIT_SPECS_DIR || path.resolve(process.cwd(), 'specs');
     this.specsDir = specsDir ? path.resolve(specsDir) : defaultDir;
-    this.releasesDir = path.resolve(process.cwd(), '.jit', 'releases');
+    this.releasesDir = releasesDir ? path.resolve(releasesDir) : path.resolve(process.cwd(), '.jit', 'releases');
     if (!fs.existsSync(this.specsDir)) {
       fs.mkdirSync(this.specsDir, { recursive: true });
     }
@@ -59,7 +60,7 @@ export class MDLoader {
       const fullPath = path.join(this.specsDir, file);
       try {
         const content = fs.readFileSync(fullPath, 'utf-8');
-        const spec = MDParser.parse(content);
+        const spec = MDParser.parse(content, file);
 
         if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
           continue;
@@ -119,7 +120,7 @@ export class MDLoader {
       const fullPath = path.join(this.specsDir, file);
       try {
         const content = fs.readFileSync(fullPath, 'utf-8');
-        const spec = MDParser.parse(content);
+        const spec = MDParser.parse(content, file);
 
         // In prod mode, ignore dev/draft APIs
         if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
@@ -180,23 +181,25 @@ export class MDLoader {
     }
 
     const files = fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.md'));
-    const specsSummary: Array<{ route: string; version?: string; filename: string }> = [];
+    const specsSummary: Array<{ route: string; version?: string; filename: string; sha256?: string }> = [];
 
     for (const file of files) {
       const src = path.join(this.specsDir, file);
       const dest = path.join(targetDir, file);
       const content = fs.readFileSync(src, 'utf-8');
       fs.writeFileSync(dest, content, 'utf-8');
+      const sha256 = crypto.createHash('sha256').update(content).digest('hex');
 
       try {
-        const parsed = MDParser.parse(content);
+        const parsed = MDParser.parse(content, file);
         specsSummary.push({
           route: parsed.route,
           version: parsed.version,
           filename: file,
+          sha256,
         });
       } catch {
-        specsSummary.push({ route: file, filename: file });
+        specsSummary.push({ route: file, filename: file, sha256 });
       }
     }
 
@@ -273,6 +276,33 @@ export class MDLoader {
       .filter((f) => (f.endsWith('.api.md') || f.endsWith('.md')) && f !== 'manifest.json');
     if (snapshotFiles.length === 0) {
       throw new Error(`版本 ${cleanVersion} 快照中無任何規格檔案。`);
+    }
+
+    // Verify cryptographic SHA-256 signatures before restoring
+    const manifestPath = path.join(targetDir, 'manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest: ReleaseInfo = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        const hashLookup = new Map<string, string>();
+        manifest.specs.forEach((s) => {
+          if (s.sha256) hashLookup.set(s.filename, s.sha256);
+        });
+
+        for (const file of snapshotFiles) {
+          const expectedHash = hashLookup.get(file);
+          if (expectedHash) {
+            const fileContent = fs.readFileSync(path.join(targetDir, file), 'utf-8');
+            const actualHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+            if (actualHash !== expectedHash) {
+              throw new Error(`[Security Alert] 快照檔案完整性驗證失敗！檔案 '${file}' 雜湊值不符 (預期: ${expectedHash}, 實際: ${actualHash})，疑似遭竄改或損壞，已中斷降版。`);
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.message.includes('完整性驗證失敗')) {
+          throw err;
+        }
+      }
     }
 
     // Identify orphaned specs currently in specsDir that are NOT in the target snapshot

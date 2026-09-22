@@ -4,7 +4,8 @@
  * Converts human-friendly Markdown API specs into JIT RouteDefinitions.
  */
 
-import { RouteDefinition, JITRequestContext } from './types.js';
+import vm from 'node:vm';
+import { RouteDefinition, JITRequestContext, AuthDefinition } from './types.js';
 
 export interface ParsedMDField {
   name: string;
@@ -17,11 +18,14 @@ export interface ParsedMDSpec {
   route: string;
   version?: string;
   stage?: 'dev' | 'prod';
+  auth?: AuthDefinition;
   description: string;
   intentCriteria: string;
   fields: ParsedMDField[];
   enumFields: Record<string, Record<string, string>>;
   logicCode?: string;
+  logicStartLine?: number;
+  filename?: string;
   mockResponse?: any;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
@@ -76,16 +80,18 @@ export class MDParser {
   /**
    * Parses Markdown content into a structured ParsedMDSpec
    */
-  public static parse(markdown: string): ParsedMDSpec {
+  public static parse(markdown: string, filename?: string): ParsedMDSpec {
     const lines = markdown.split(/\r?\n/);
     let route = '';
     let version: string | undefined;
     let stage: 'dev' | 'prod' = 'dev';
+    let auth: AuthDefinition | undefined;
     let description = '';
     let intentCriteria = '';
     const fields: ParsedMDField[] = [];
     const enumFields: Record<string, Record<string, string>> = {};
     let logicCode: string | undefined;
+    let logicStartLine: number | undefined;
     let mockResponse: any = undefined;
     let samplePayload: Record<string, any> | undefined;
     let sampleSemantic: string | undefined;
@@ -106,6 +112,9 @@ export class MDParser {
           inCodeBlock = true;
           codeBlockLang = trimmed.replace('```', '').trim().toLowerCase();
           codeBlockLines = [];
+          if (currentSection === 'logic') {
+            logicStartLine = i + 2; // Line where code starts (1-indexed)
+          }
           continue;
         } else {
           inCodeBlock = false;
@@ -163,7 +172,7 @@ export class MDParser {
         continue;
       }
 
-      // 5. Section headers: ## Intent, ## Fields, ## Logic, ## Mock, ## Sample, ## Test
+      // 5. Section headers: ## Intent, ## Fields, ## Logic, ## Mock, ## Sample, ## Test, ## Auth
       const sectionMatch = trimmed.match(/^##\s+([a-zA-Z0-9_\s]+)/i);
       if (sectionMatch) {
         currentSection = sectionMatch[1].trim().toLowerCase();
@@ -172,6 +181,32 @@ export class MDParser {
       }
 
       if (!trimmed) continue;
+
+      // Handle Section: Auth
+      if (currentSection === 'auth') {
+        if (!auth) auth = { type: 'none' };
+        const typeMatch = trimmed.match(/^(?:-\s*)?type\s*:\s*([a-zA-Z\-]+)/i);
+        if (typeMatch) {
+          const rawType = typeMatch[1].toLowerCase();
+          auth.type = (rawType === 'bearer' || rawType === 'api-key') ? rawType : 'none';
+          continue;
+        }
+        const headerMatch = trimmed.match(/^(?:-\s*)?header\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (headerMatch) {
+          auth.header = headerMatch[1].trim();
+          continue;
+        }
+        const tokenMatch = trimmed.match(/^(?:-\s*)?token\s*:\s*(.+)/i);
+        if (tokenMatch) {
+          auth.token = tokenMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const envMatch = trimmed.match(/^(?:-\s*)?(?:env|envvar)\s*:\s*([a-zA-Z0-9_]+)/i);
+        if (envMatch) {
+          auth.envVar = envMatch[1].trim();
+          continue;
+        }
+      }
 
       // Handle Section: Intent
       if (currentSection === 'intent') {
@@ -185,9 +220,22 @@ export class MDParser {
 
       // Handle Section: Fields
       if (currentSection === 'fields') {
-        // Bullet point: - name: type (comment)
+        const isSubBullet = /^\s+-\s+/.test(rawLine);
+
+        // Sub-bullet point for enum values:   - VALUE: description or   - VALUE
+        if (isSubBullet && currentField && currentField.type === 'enum' && currentField.enumValues) {
+          const enumMatch = trimmed.match(/^-\s+([a-zA-Z0-9_]+)(?:\s*:\s*(.*))?/);
+          if (enumMatch) {
+            const val = enumMatch[1];
+            const desc = enumMatch[2] ? enumMatch[2].trim() : val;
+            currentField.enumValues[val] = desc;
+            continue;
+          }
+        }
+
+        // Top-level field bullet point: - name: type (comment)
         const fieldMatch = trimmed.match(/^-\s+([a-zA-Z0-9_]+)\s*:\s*([a-zA-Z0-9_]+)(?:\s*\((.*?)\))?/);
-        if (fieldMatch) {
+        if (!isSubBullet && fieldMatch) {
           const fieldName = fieldMatch[1];
           const fieldType = fieldMatch[2].toLowerCase();
           const fieldDesc = fieldMatch[3] || '';
@@ -205,17 +253,6 @@ export class MDParser {
 
           fields.push(currentField);
           continue;
-        }
-
-        // Sub-bullet point for enum values: - VALUE: description or - VALUE
-        if (currentField && currentField.type === 'enum' && currentField.enumValues) {
-          const enumMatch = trimmed.match(/^-\s+([a-zA-Z0-9_]+)(?:\s*:\s*(.*))?/);
-          if (enumMatch) {
-            const val = enumMatch[1];
-            const desc = enumMatch[2] ? enumMatch[2].trim() : val;
-            currentField.enumValues[val] = desc;
-            continue;
-          }
         }
       }
 
@@ -262,11 +299,14 @@ export class MDParser {
       route,
       version: version || '1.0.0',
       stage,
+      auth,
       description: description || `Handler for ${route}`,
       intentCriteria: intentCriteria || description || route,
       fields,
       enumFields,
       logicCode,
+      logicStartLine,
+      filename,
       mockResponse,
       samplePayload,
       sampleSemantic,
@@ -274,32 +314,88 @@ export class MDParser {
   }
 
   /**
-   * Converts ParsedMDSpec into a live executable RouteDefinition
+   * Converts ParsedMDSpec into a live executable RouteDefinition with node:vm Sandboxing
    */
   public static toRouteDefinition(spec: ParsedMDSpec): RouteDefinition {
     let handler: (payload: any, ctx: JITRequestContext) => Promise<any>;
 
     if (spec.logicCode) {
-      // Safely construct an async handler function
-      try {
-        const fn = new Function('payload', 'ctx', `
-          return (async () => {
-            ${spec.logicCode}
-          })();
-        `);
-        handler = async (payload: any, ctx: JITRequestContext) => {
-          return await fn(payload, ctx);
+      const fileName = spec.filename || `${spec.route}.api.md`;
+      const startLine = spec.logicStartLine || 1;
+      const wrappedCode = `(async () => {\n${spec.logicCode}\n})()`;
+
+      handler = async (payload: any, ctx: JITRequestContext) => {
+        // Deep clone payload to prevent prototype pollution
+        let safePayload: any;
+        try {
+          safePayload = JSON.parse(JSON.stringify(payload || {}));
+        } catch {
+          safePayload = { ...payload };
+        }
+
+        const safeCtx: JITRequestContext = {
+          route: ctx.route,
+          phase: ctx.phase,
+          executionTimeMs: ctx.executionTimeMs,
+          aiLatencyMs: ctx.aiLatencyMs,
+          intentConfidence: ctx.intentConfidence,
+          engineUsed: ctx.engineUsed,
+          headers: ctx.headers ? { ...ctx.headers } : undefined,
         };
-      } catch (err: any) {
-        console.warn(`[MDParser] Failed to compile logic code for ${spec.route}, falling back to mock:`, err.message);
-        handler = async (payload: any, ctx: JITRequestContext) => {
-          return {
-            ...spec.mockResponse,
-            _payload: payload,
-            _phase: ctx.phase,
-          };
+
+        const sandbox: Record<string, any> = {
+          payload: safePayload,
+          ctx: safeCtx,
+          console: {
+            log: (...args: any[]) => console.log(`[Sandbox:${spec.route}]`, ...args),
+            warn: (...args: any[]) => console.warn(`[Sandbox:${spec.route}]`, ...args),
+            error: (...args: any[]) => console.error(`[Sandbox:${spec.route}]`, ...args),
+          },
+          JSON,
+          Math,
+          Date,
+          String,
+          Number,
+          Boolean,
+          Array,
+          Object,
+          RegExp,
+          parseInt,
+          parseFloat,
+          encodeURIComponent,
+          decodeURIComponent,
+          // Explicitly blocked critical globals
+          process: undefined,
+          require: undefined,
+          import: undefined,
+          global: undefined,
+          globalThis: undefined,
         };
-      }
+
+        const context = vm.createContext(sandbox, {
+          codeGeneration: {
+            strings: false, // Disallow eval() and new Function()
+            wasm: false,
+          },
+        });
+
+        try {
+          const script = new vm.Script(wrappedCode, {
+            filename: fileName,
+            lineOffset: Math.max(0, startLine - 2),
+          });
+
+          // Run with timeout (3000ms) to kill infinite loops
+          const promise = script.runInContext(context, { timeout: 3000 });
+          return await promise;
+        } catch (err: any) {
+          const wrapped = new Error(`[Logic Error] ${spec.route} (${fileName}:${startLine}): ${err.message}`);
+          if (err.stack) {
+            wrapped.stack = err.stack;
+          }
+          throw wrapped;
+        }
+      };
     } else if (spec.mockResponse !== undefined) {
       handler = async (payload: any, ctx: JITRequestContext) => {
         return typeof spec.mockResponse === 'object' && spec.mockResponse !== null
@@ -322,6 +418,7 @@ export class MDParser {
       route: spec.route,
       version: spec.version,
       stage: spec.stage,
+      auth: spec.auth,
       description: spec.description,
       intentCriteria: spec.intentCriteria,
       samplePayload: spec.samplePayload,
