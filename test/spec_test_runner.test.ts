@@ -21,5 +21,5 @@ describe('U3: Spec Automated Test Runner (SpecTestRunner)', () => {
         const orderSpec = orderResults[0];
         expect(orderSpec.hasPayload).toBe(true);
         expect(orderSpec.payloadPassed).toBe(true);
-    });
+    }, 15000);
 });

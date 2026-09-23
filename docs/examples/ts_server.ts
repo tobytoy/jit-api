@@ -16,7 +16,7 @@ import express from 'express';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
-import { JITEngine, JITRequestContext, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer } from '../../core/index.js';
+import { JITEngine, JITRequestContext, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer, ConnectAdapter } from '../../core/index.js';
 
 const app = express();
 app.use(express.json());
@@ -57,7 +57,10 @@ mdLoader.watch(engine);
 // 3. 掛載 MCP Server (Model Context Protocol - SSE 模式)
 MCPAdapter.attachToExpress(app, engine, mdLoader, '/sse', '/messages');
 
-// 4. 初始化 Benchmark Runner
+// 4. 掛載 ConnectRPC (Triple-Protocol: Connect / gRPC-Web / gRPC)
+ConnectAdapter.attachToExpress(app, engine, mdLoader);
+
+// 5. 初始化 Benchmark Runner
 const benchRunner = new BenchmarkRunner();
 
 // ================= API Endpoints =================

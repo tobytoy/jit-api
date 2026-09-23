@@ -22,9 +22,12 @@ export interface IRSchema {
   route: string;
   description?: string;
   fields: Record<string, IRField>;
+  responseFields?: Record<string, IRField>;
   samplePayload?: Record<string, unknown>;
+  sampleResponse?: Record<string, unknown>;
   frozenAt?: string;
 }
+
 
 export interface JevChoiceQuestion {
   type: 'choice';
@@ -116,13 +119,39 @@ export interface StabilityMetrics {
   isStable: boolean;
 }
 
+export type DriftMode = 'evolve' | 'strict' | 'lenient';
+
+export interface AutoRepairModification {
+  field: string;
+  type: 'rename' | 'coerce' | 'alias';
+  from: unknown;
+  to: unknown;
+  reason: string;
+}
+
+export interface AutoRepairResult {
+  repaired: boolean;
+  payload: Record<string, unknown>;
+  modifications: AutoRepairModification[];
+}
+
+export interface SchemaSnapshot {
+  exportedAt: string;
+  version: string;
+  schemas: Record<string, IRSchema[]>;
+}
+
 export interface JITRequestContext {
   route: string;
   phase: LifecyclePhase;
   executionTimeMs: number;
   aiLatencyMs: number;
+  version?: number;
   intentConfidence?: number;
   isFallback?: boolean;
+  autoRepaired?: boolean;
+  repairDetails?: string[];
+  softDriftDetected?: boolean;
   engineUsed?: 'typesafe' | 'needle';
   headers?: Record<string, string | string[] | undefined>;
 }
@@ -133,4 +162,5 @@ export interface JITExecutionResult<T = any> {
   error?: string;
   context: JITRequestContext;
 }
+
 

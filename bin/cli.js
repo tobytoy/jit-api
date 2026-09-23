@@ -26,7 +26,7 @@ try {
   coreModules = await import('../core/index.js');
 }
 
-const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer, SpecTestRunner } = coreModules;
+const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer, SpecTestRunner, ConnectAdapter } = coreModules;
 
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith('-') ? args[0] : 'dev';
@@ -308,7 +308,10 @@ const loadedSpecs = mdLoader.loadAll(engine, stageFilter);
 // 3. 掛載 MCP Server (SSE) - pass isProd, PORT, and stageFilter
 MCPAdapter.attachToExpress(app, engine, mdLoader, '/sse', '/messages', isProd, PORT, stageFilter);
 
-// 4. Benchmark Runner
+// 4. 掛載 ConnectRPC (Triple-Protocol: Connect / gRPC-Web / gRPC)
+ConnectAdapter.attachToExpress(app, engine, mdLoader, { port: PORT, stageFilter, isProd });
+
+// 5. Benchmark Runner
 const benchRunner = new BenchmarkRunner();
 
 // ================= API Endpoints =================
@@ -501,6 +504,7 @@ function startServer(portToTry, maxRetries = 10) {
         console.log(`   - 🌐 唯讀觀測儀表板:        http://localhost:${PORT}`);
       }
       console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
+      console.log(`   - ⚡ ConnectRPC 協定入口:   http://localhost:${PORT}/jit.v1.JITService/Execute`);
     } else {
       console.log(`🚀 [DEV MODE] JIT Protocol Synthesis Studio 開發控制台啟動成功！`);
       if (isHeadless) {
@@ -513,6 +517,7 @@ function startServer(portToTry, maxRetries = 10) {
       console.log(`   - 📝 目前掛載 API 數量:    ${loadedSpecs.length} 支 (含 Dev 草稿)`);
       console.log(`   - 🤖 MCP 協定入口 (SSE):   http://localhost:${PORT}/sse`);
       console.log(`   - ⚡ JIT 動態 API Gateway: http://localhost:${PORT}/api/jit`);
+      console.log(`   - ⚡ ConnectRPC 協定入口:   http://localhost:${PORT}/jit.v1.JITService/Execute`);
     }
     console.log('='.repeat(70));
   });

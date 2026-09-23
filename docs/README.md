@@ -53,17 +53,26 @@
 * **Phase 3（極速期）**：Client 端如何使用自動產出的 TypeScript 型態或 Protobuf 達成 0ms AI 延遲。
 * **Schema Drift（演化期）**：Client 業務變更傳送新規格時的無痛過渡。
 
-### 6. 💻 [可直接執行的程式碼範例 (`docs/examples/`)](./examples/)
-* [docs/examples/ts_server.ts](./examples/ts_server.ts) — 整合 Web Dashboard、k6 壓測與 MD 規格的 Express 伺服器
+### 6. 🌐 [ConnectRPC (Triple-Protocol: Connect / gRPC-Web / gRPC) 整合指南](./connectrpc_guide.md)
+* **三大協議原生支援**：Connect Protocol v1、gRPC-Web、標準 gRPC，瀏覽器端與微服務端免 Envoy 代理直接通訊。
+* **二進位 Envelope Framing**：支援 `application/connect+proto` 5-byte 幀解碼與微秒級處理。
+
+### 7. 💻 [可直接執行的程式碼範例 (`docs/examples/`)](./examples/)
+* [docs/examples/ts_server.ts](./examples/ts_server.ts) — 整合 Web Dashboard、k6 壓測、ConnectRPC 與 MD 規格的 Express 伺服器
 * [docs/examples/ts_client.ts](./examples/ts_client.ts) — TypeScript 全生命週期客戶端測試腳本
+* [docs/examples/connect_client.ts](./examples/connect_client.ts) — ConnectRPC 端對端客戶端調用腳本
 * [docs/examples/py_server.py](./examples/py_server.py) — Python FastAPI + JITEngine 伺服器
 * [docs/examples/py_client.py](./examples/py_client.py) — Python 客戶端調用示範腳本
 
-### 7. 🔄 [版本發布與升級指南](./release_and_upgrade_guide.md)
+### 8. 🔄 [版本發布與升級指南](./release_and_upgrade_guide.md)
 * **GitHub vs 官方 Registry（廚房 vs 超市貨架）**：清晰區分代碼存放與終端安裝包。
 * **套件發布 SOP**：NPM (`jit-api`) 與 PyPI (`jit-protocol`) 版號遞增與發布流程。
 * **業務 API 規格快照發布與秒級降版**：`npx jit-api release <ver>` 建立規格快照；`npx jit-api rollback <ver>` 零停機即時回滾。
 * **使用者升級方法**：`npx jit-api` 自動無痛升級、`npm update -g`、`pip install -U` 與 Docker 映像檔更新。
+
+### 9. 📋 [完整版本歷史與更新日誌 (Changelog)](./changelog.md)
+* 追蹤每一版的重大架構演進、功能增強、修復項目與演進歷程。
+
 
 ---
 

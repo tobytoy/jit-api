@@ -5,6 +5,8 @@
  * into native MCP Tools for Claude Desktop, Cursor, Antigravity, and AI Agents.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -13,6 +15,17 @@ import { z } from 'zod';
 import { JITEngine } from './jit_engine.js';
 import { MDLoader } from './md_loader.js';
 import { ParsedMDField, ParsedMDSpec } from './md_parser.js';
+
+function getPackageVersion(): string {
+  try {
+    const pkgPath = path.resolve(process.cwd(), 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const data = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      if (data.version) return data.version;
+    }
+  } catch {}
+  return '1.2.0';
+}
 
 export class MCPAdapter {
   /**
@@ -47,7 +60,7 @@ export class MCPAdapter {
   ): McpServer {
     const mcpServer = new McpServer({
       name: 'jit-api-mcp',
-      version: '1.1.1',
+      version: getPackageVersion(),
     });
 
     const specs = mdLoader.loadAll(engine, stageFilter);
@@ -101,7 +114,7 @@ export class MCPAdapter {
     port: number = 3005,
     stageFilter: 'all' | 'prod' | 'dev' = 'all'
   ): void {
-    let transport: SSEServerTransport | null = null;
+    const transports = new Map<string, SSEServerTransport>();
     const mcpServer = this.createMcpServer(engine, mdLoader, stageFilter);
 
     // Watch specs directory to update engine in background only in dev mode
@@ -111,16 +124,28 @@ export class MCPAdapter {
 
     // SSE connection endpoint
     app.get(ssePath, async (req: Request, res: Response) => {
-      transport = new SSEServerTransport(messagePath, res);
+      const transport = new SSEServerTransport(messagePath, res);
+      const sessionId = transport.sessionId;
+      transports.set(sessionId, transport);
+      transport.onclose = () => {
+        transports.delete(sessionId);
+      };
       await mcpServer.connect(transport);
     });
 
     // Message handler endpoint
     app.post(messagePath, async (req: Request, res: Response) => {
+      const sessionId = (req.query.sessionId as string) || (req.body?.sessionId as string);
+      const transport = sessionId
+        ? transports.get(sessionId)
+        : transports.size === 1
+        ? transports.values().next().value
+        : null;
+
       if (transport) {
         await transport.handlePostMessage(req, res);
       } else {
-        res.status(400).send('No active MCP SSE session');
+        res.status(400).send(`No active MCP SSE session${sessionId ? ` for sessionId: ${sessionId}` : ''}`);
       }
     });
 
