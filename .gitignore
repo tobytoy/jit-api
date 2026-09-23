@@ -239,6 +239,8 @@ pnpm-debug.log*
 # Runtime Generated Artifacts & Tests
 generated/
 .test_generated/
+.jit/*.json
+!.jit/releases/**
 
 # OS & Editor
 .DS_Store

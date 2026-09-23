@@ -14,6 +14,11 @@ export * from './test_runner.js';
 export * from './connect_adapter.js';
 export * from './auto_repair.js';
 export * from './schema_store.js';
+export * from './mock_generator.js';
+export * from './mock_server.js';
+export * from './mock_client.js';
+export * from './proxy_recorder.js';
+
 export * from '../blocks/ast_typescript/ts_block.js';
 export * from '../blocks/ast_golang/go_block.js';
 export * from '../blocks/ast_python/py_block.js';

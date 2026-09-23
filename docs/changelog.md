@@ -74,15 +74,38 @@
 
 ---
 
+### 7. 🎭 智慧雙向角色切換：Mock Server、Mock Client 與 旁路錄製數位孿生 (Mock & Digital Twin Suite)
+* **核心價值**：JIT 不僅能當 API Gateway，更具備扮演 Mock Client（自動生成真實/Fuzz流量測試後端）、Mock Server（零後端讓前端即刻開工）以及 Proxy Recorder（旁路無感錄製 live 流量結晶出 Markdown 規格與斷線數位孿生）的三重角色！
+* **架構升級**：
+  * **Smart Mock Server**（[`core/mock_server.ts`](../core/mock_server.ts)）：
+    * 根據 Markdown 規格（`## Mock`、`## Sample`、`## Fields`）自動產生語意真實的合成資料（UUID、ISO 日期、Email、金額等）。
+    * 同時支援 REST (`/api/mock/:route`) 與 ConnectRPC (`/jit.v1.JITService/:method`)。
+    * 同樣享有 Phase 1 -> Phase 3 快速結晶能力，前端取得 0ms 靜態回應體驗。
+    * CLI 指令：`npx jit-api mock [--port 3005] [--specs ./specs]`。
+  * **Smart Mock Client**（[`core/mock_client.ts`](../core/mock_client.ts)）：
+    * 支援三大流量注入模式：`valid`（合規合成資料）、`fuzz`（故意更換 camelCase、字串化數字驗收 JIT Auto-Repair）、`chaos`（欄位缺失與異常型別壓力測試）。
+    * 自動生成彙總報告（請求數、成功率、延遲與狀態碼分布）。
+    * CLI 指令：`npx jit-api mock-client --target <url> [--mode valid|fuzz|chaos] [--count 5]`。
+  * **Smart Proxy Recorder & Digital Twin**（[`core/proxy_recorder.ts`](../core/proxy_recorder.ts)）：
+    * 旁路攔截真實流量，自動雙向觀察 Request + Response。
+    * 連續 3 筆穩定流量即在 `specs/` 自動結晶出 `recorded_<route>.api.md` Markdown 規格檔。
+    * **斷線自動容錯（Failover to Digital Twin）**：當真實後端當機或無法連線時，代理自動無縫降級為本地「數位孿生」，回傳快取之最後已知結構，保障前端展示與離線開發不中斷！
+    * CLI 指令：`npx jit-api proxy --target http://api.example.com [--offline]`。
+
+---
+
 ### 🧪 驗證與測試覆蓋
-* 新增 6 組專屬測試套件：
+* 新增 9 組專屬測試套件：
   1. `test/multi_version_coexistence.test.ts`
   2. `test/auto_repair.test.ts`
   3. `test/strict_evolve_drift.test.ts`
   4. `test/schema_persistence.test.ts`
   5. `test/connect_binary_proto.test.ts`
   6. `test/bidirectional_schema.test.ts`
-* 全套 18 個測試檔案（共 51 項測試）全數 100% 通過。
+  7. `test/mock_server.test.ts`
+  8. `test/mock_client.test.ts`
+  9. `test/proxy_recorder.test.ts`
+* 全套 21 個測試檔案（共 58 項測試）全數 100% 通過。
 
 ---
 

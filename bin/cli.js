@@ -26,7 +26,18 @@ try {
   coreModules = await import('../core/index.js');
 }
 
-const { JITEngine, MDLoader, BenchmarkRunner, MCPAdapter, TerminalServer, SpecTestRunner, ConnectAdapter } = coreModules;
+const {
+  JITEngine,
+  MDLoader,
+  BenchmarkRunner,
+  MCPAdapter,
+  TerminalServer,
+  SpecTestRunner,
+  ConnectAdapter,
+  MockServer,
+  MockClient,
+  ProxyRecorder,
+} = coreModules;
 
 const args = process.argv.slice(2);
 const command = args[0] && !args[0].startsWith('-') ? args[0] : 'dev';
@@ -50,6 +61,9 @@ Usage:
 Commands:
   dev               啟動開發模式：含 Web Studio、PTY 終端、動態熱重載 (預設, Port: 3005)
   start | prod      啟動生產模式：高效 API Gateway、安全防護 (停用終端、物理隔離規格, Port: 3000)
+  mock              啟動智慧 Mock Server：零後端開發，支援 REST 與 ConnectRPC (例: npx jit-api mock)
+  mock-client       發送合成/Fuzz/Chaos 流量驗收後端 (例: npx jit-api mock-client --target http://localhost:3000)
+  proxy             啟動旁路錄製代理與數位孿生 (例: npx jit-api proxy --target http://api.example.com)
   test              自動化執行 specs/ 中所有 ## Sample 測試範例 (例: npx jit-api test)
   release <version> 建立當前 Markdown 規格之版本快照與 SHA-256 簽名 (例: npx jit-api release 1.0.0)
   rollback <version>驗簽並秒級回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
@@ -58,10 +72,16 @@ Commands:
 Options:
   --port <number>   指定伺服器連接埠 (dev 預設 3005, prod 預設 3000)
   --specs <path>    指定 Markdown API 規格目錄 (預設: ./specs)
+  --target <url>    指定代理或 Mock Client 的目標伺服器位址
+  --route <name>    指定 Mock Client 測試的目標路由
+  --mode <mode>     指定 Mock Client 模式 (valid | fuzz | chaos, 預設: valid)
+  --count <number>  指定測試請求發送次數 (預設: 5)
+  --offline         代理伺服器強制切換為離線數位孿生模式
   --headless        關閉 Web Dashboard，以純 API Gateway 運作
   -h, --help        顯示說明資訊
   -v, --version     顯示版本資訊
 `);
+
   process.exit(0);
 }
 
@@ -218,7 +238,85 @@ return {
   process.exit(0);
 }
 
+// Command: mock
+if (command === 'mock') {
+  const port = parseInt(getArg('--port', '3005'), 10);
+  console.log('🎭 JIT Smart Mock Server (Zero-Backend Development)');
+  console.log(`📂 載入規格目錄: ${specsDir}`);
+  const mockServer = new MockServer({ port, specsDir });
+  await mockServer.start();
+  // Keep running
+}
+
+// Command: mock-client
+if (command === 'mock-client') {
+  const target = getArg('--target', 'http://localhost:3005');
+  const route = getArg('--route', 'ping');
+  const mode = getArg('--mode', 'valid');
+  const count = parseInt(getArg('--count', '5'), 10);
+
+  console.log('🤖 JIT Smart Mock Client (Synthetic Traffic & Chaos Testing)');
+  console.log(`🎯 目標 URL: ${target}`);
+  console.log(`🛣️ 測試路由: ${route} | 模式: ${mode} | 次數: ${count}\n`);
+
+  const client = new MockClient({ targetUrl: target });
+  let samplePayload = { client: 'mock-client-agent' };
+
+  try {
+    const loader = new MDLoader(specsDir);
+    const specs = loader.listSpecs('all');
+    const matched = specs.find((s) => s.route === route);
+    if (matched && matched.samplePayload) {
+      samplePayload = matched.samplePayload;
+    }
+  } catch {}
+
+  const report = await client.runSuite(route, samplePayload, count, mode);
+
+  console.log('📊 驗收測試報告 (Mock Client Report):');
+  console.log(`   - 總請求數: ${report.totalRequests}`);
+  console.log(`   - 成功數: ${report.successful} (${report.successRate}%)`);
+  console.log(`   - 失敗數: ${report.failed}`);
+  console.log(`   - 平均延遲: ${report.avgLatencyMs}ms\n`);
+
+  for (const res of report.results) {
+    const icon = res.ok ? '✅' : '❌';
+    console.log(`   ${icon} #${res.index}: HTTP ${res.status} [${res.latencyMs}ms]`);
+    if (res.error) console.log(`      ⚠️ 錯誤: ${res.error}`);
+  }
+
+  process.exit(report.failed > 0 ? 1 : 0);
+}
+
+// Command: proxy
+if (command === 'proxy') {
+  const target = getArg('--target', '');
+  const offline = args.includes('--offline');
+  if (!target && !offline) {
+    console.error('❌ 請提供目標後端 URL！範例: npx jit-api proxy --target http://api.example.com');
+    process.exit(1);
+  }
+
+  const port = parseInt(getArg('--port', '3005'), 10);
+  console.log('🛰️ JIT Smart Proxy & Digital Twin (Record & Replay)');
+  console.log(`🎯 目標伺服器: ${target || '(離線數位孿生模式)'}`);
+  console.log(`📂 規格結晶輸出目錄: ${specsDir}`);
+  console.log(`🔌 代理連接埠: ${port}`);
+  if (offline) console.log('⚡ 狀態: 強制離線數位孿生模式 (Offline Digital Twin)');
+
+  const proxy = new ProxyRecorder({
+    targetUrl: target || 'http://localhost',
+    port,
+    specsDir,
+    offline,
+  });
+
+  await proxy.start();
+  // Keep running
+}
+
 // Server Mode Setup: Dev vs Prod
+
 const isProd = command === 'prod' || command === 'start' || process.env.NODE_ENV === 'production';
 const isHeadless = args.includes('--headless') || args.includes('--no-dashboard');
 const defaultPort = isProd ? 3000 : 3005;

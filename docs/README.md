@@ -57,20 +57,30 @@
 * **三大協議原生支援**：Connect Protocol v1、gRPC-Web、標準 gRPC，瀏覽器端與微服務端免 Envoy 代理直接通訊。
 * **二進位 Envelope Framing**：支援 `application/connect+proto` 5-byte 幀解碼與微秒級處理。
 
-### 7. 💻 [可直接執行的程式碼範例 (`docs/examples/`)](./examples/)
+### 7. 🎭 [Smart Mock Server 與 Mock Client 實戰使用指南](./mock_guide.md)
+* **角色決策樹**：何時用 Mock Server（前端等後端）？何時用 Mock Client（測試後端）？
+* **Mock Server 完整教學**：CLI 啟動、Markdown 規格撰寫 (`## Mock` / `## Sample` / `## Fields`)、REST 與 ConnectRPC 調用、0ms 結晶機制。
+* **Mock Client 完整教學**：三大流量注入模式 (`valid` / `fuzz` / `chaos`)、JIT Auto-Repair 自適應檢驗、結構化報告解讀。
+* **閉環實戰**：不寫一行後端代碼，Mock Client 直接狂灌 Mock Server 驗收規格。
+
+### 8. 🛰️ [旁路錄製代理與離線數位孿生指南](./mock_and_digital_twin_guide.md)
+* 旁路透明攔截真實流量，自動雙向觀察 Request + Response 並結晶出 `specs/recorded_*.api.md`。
+* 後端當機或離線時，自動無縫 Failover 降級為本地「數位孿生」，保障前端展示與開發不中斷。
+
+### 9. 💻 [可直接執行的程式碼範例 (`docs/examples/`)](./examples/)
 * [docs/examples/ts_server.ts](./examples/ts_server.ts) — 整合 Web Dashboard、k6 壓測、ConnectRPC 與 MD 規格的 Express 伺服器
 * [docs/examples/ts_client.ts](./examples/ts_client.ts) — TypeScript 全生命週期客戶端測試腳本
 * [docs/examples/connect_client.ts](./examples/connect_client.ts) — ConnectRPC 端對端客戶端調用腳本
 * [docs/examples/py_server.py](./examples/py_server.py) — Python FastAPI + JITEngine 伺服器
 * [docs/examples/py_client.py](./examples/py_client.py) — Python 客戶端調用示範腳本
 
-### 8. 🔄 [版本發布與升級指南](./release_and_upgrade_guide.md)
+### 10. 🔄 [版本發布與升級指南](./release_and_upgrade_guide.md)
 * **GitHub vs 官方 Registry（廚房 vs 超市貨架）**：清晰區分代碼存放與終端安裝包。
 * **套件發布 SOP**：NPM (`jit-api`) 與 PyPI (`jit-protocol`) 版號遞增與發布流程。
 * **業務 API 規格快照發布與秒級降版**：`npx jit-api release <ver>` 建立規格快照；`npx jit-api rollback <ver>` 零停機即時回滾。
 * **使用者升級方法**：`npx jit-api` 自動無痛升級、`npm update -g`、`pip install -U` 與 Docker 映像檔更新。
 
-### 9. 📋 [完整版本歷史與更新日誌 (Changelog)](./changelog.md)
+### 11. 📋 [完整版本歷史與更新日誌 (Changelog)](./changelog.md)
 * 追蹤每一版的重大架構演進、功能增強、修復項目與演進歷程。
 
 
