@@ -5,7 +5,7 @@
  */
 
 import vm from 'node:vm';
-import { RouteDefinition, JITRequestContext, AuthDefinition } from './types.js';
+import { RouteDefinition, JITRequestContext, AuthDefinition, UpstreamDefinition, RateLimitDefinition } from './types.js';
 
 export interface ParsedMDField {
   name: string;
@@ -19,6 +19,8 @@ export interface ParsedMDSpec {
   version?: string;
   stage?: 'dev' | 'prod';
   auth?: AuthDefinition;
+  upstream?: UpstreamDefinition;
+  rateLimit?: RateLimitDefinition;
   description: string;
   intentCriteria: string;
   fields: ParsedMDField[];
@@ -86,6 +88,8 @@ export class MDParser {
     let version: string | undefined;
     let stage: 'dev' | 'prod' = 'dev';
     let auth: AuthDefinition | undefined;
+    let upstream: UpstreamDefinition | undefined;
+    let rateLimit: RateLimitDefinition | undefined;
     let description = '';
     let intentCriteria = '';
     const fields: ParsedMDField[] = [];
@@ -208,6 +212,56 @@ export class MDParser {
         }
       }
 
+      // Handle Section: Upstream
+      if (currentSection === 'upstream') {
+        if (!upstream) upstream = { targetUrl: '' };
+        const urlMatch = trimmed.match(/^(?:-\s*)?(?:targeturl|url)\s*:\s*(.+)/i);
+        if (urlMatch) {
+          upstream.targetUrl = urlMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const methodMatch = trimmed.match(/^(?:-\s*)?method\s*:\s*([a-zA-Z]+)/i);
+        if (methodMatch) {
+          upstream.method = methodMatch[1].trim().toUpperCase() as any;
+          continue;
+        }
+        const secretMatch = trimmed.match(/^(?:-\s*)?(?:secretref|secret)\s*:\s*(.+)/i);
+        if (secretMatch) {
+          upstream.secretRef = secretMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const cacheMatch = trimmed.match(/^(?:-\s*)?(?:cachettlseconds|cachettl|cache)\s*:\s*(\d+)/i);
+        if (cacheMatch) {
+          upstream.cacheTtlSeconds = parseInt(cacheMatch[1], 10);
+          continue;
+        }
+        const timeoutMatch = trimmed.match(/^(?:-\s*)?(?:timeoutms|timeout)\s*:\s*(\d+)/i);
+        if (timeoutMatch) {
+          upstream.timeoutMs = parseInt(timeoutMatch[1], 10);
+          continue;
+        }
+      }
+
+      // Handle Section: Limits or RateLimit
+      if (currentSection === 'limits' || currentSection === 'ratelimit') {
+        if (!rateLimit) rateLimit = { windowSeconds: 60, maxRequests: 60 };
+        const windowMatch = trimmed.match(/^(?:-\s*)?(?:windowseconds|window)\s*:\s*(\d+)/i);
+        if (windowMatch) {
+          rateLimit.windowSeconds = parseInt(windowMatch[1], 10);
+          continue;
+        }
+        const maxMatch = trimmed.match(/^(?:-\s*)?(?:maxrequests|max|limit|rate)\s*:\s*(\d+)/i);
+        if (maxMatch) {
+          rateLimit.maxRequests = parseInt(maxMatch[1], 10);
+          continue;
+        }
+        const quotaMatch = trimmed.match(/^(?:-\s*)?(?:dailyquota|daily|quota)\s*:\s*(\d+)/i);
+        if (quotaMatch) {
+          rateLimit.dailyQuota = parseInt(quotaMatch[1], 10);
+          continue;
+        }
+      }
+
       // Handle Section: Intent
       if (currentSection === 'intent') {
         if (!intentCriteria) {
@@ -300,6 +354,8 @@ export class MDParser {
       version: version || '1.0.0',
       stage,
       auth,
+      upstream,
+      rateLimit,
       description: description || `Handler for ${route}`,
       intentCriteria: intentCriteria || description || route,
       fields,
@@ -341,11 +397,14 @@ export class MDParser {
           intentConfidence: ctx.intentConfidence,
           engineUsed: ctx.engineUsed,
           headers: ctx.headers ? { ...ctx.headers } : undefined,
+          tenant: ctx.tenant,
+          upstreamFetch: ctx.upstreamFetch,
         };
 
         const sandbox: Record<string, any> = {
           payload: safePayload,
           ctx: safeCtx,
+          upstreamFetch: ctx.upstreamFetch,
           console: {
             log: (...args: any[]) => console.log(`[Sandbox:${spec.route}]`, ...args),
             warn: (...args: any[]) => console.warn(`[Sandbox:${spec.route}]`, ...args),
@@ -396,6 +455,23 @@ export class MDParser {
           throw wrapped;
         }
       };
+    } else if (spec.upstream && spec.upstream.targetUrl) {
+      handler = async (payload: any, ctx: JITRequestContext) => {
+        if (ctx.upstreamFetch) {
+          return await ctx.upstreamFetch(spec.upstream!.targetUrl, {
+            method: spec.upstream!.method || 'GET',
+            body: payload,
+            secretRef: spec.upstream!.secretRef,
+            cacheTtlSeconds: spec.upstream!.cacheTtlSeconds,
+            timeoutMs: spec.upstream!.timeoutMs,
+          });
+        }
+        return {
+          proxy: 'upstream_configured',
+          targetUrl: spec.upstream!.targetUrl,
+          payload,
+        };
+      };
     } else if (spec.mockResponse !== undefined) {
       handler = async (payload: any, ctx: JITRequestContext) => {
         return typeof spec.mockResponse === 'object' && spec.mockResponse !== null
@@ -419,6 +495,8 @@ export class MDParser {
       version: spec.version,
       stage: spec.stage,
       auth: spec.auth,
+      upstream: spec.upstream,
+      rateLimit: spec.rateLimit,
       description: spec.description,
       intentCriteria: spec.intentCriteria,
       samplePayload: spec.samplePayload,

@@ -240,6 +240,10 @@ pnpm-debug.log*
 generated/
 .test_generated/
 .jit/*.json
+.jit/upstream_secrets.*
+.jit/apikeys.json
+.jit/master_session.json
+.jit/tenants.json
 !.jit/releases/**
 
 # OS & Editor

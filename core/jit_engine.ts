@@ -16,6 +16,16 @@ import {
 } from './types.js';
 import { TypeSafeClient } from './typesafe_client.js';
 import { TypeSafeRouter } from './typesafe_router.js';
+import {
+  TrafficLightManager,
+  RouteTrafficLight,
+  RouteLockInfo,
+  LockAcquireOptions,
+} from './coordination.js';
+import { UpstreamClient } from './upstream_client.js';
+import { RateLimiter } from './rate_limiter.js';
+import { TenantStore } from './tenant_store.js';
+import { UnauthorizedError } from './types.js';
 
 export interface JITEngineOptions {
   client?: TypeSafeClient;
@@ -28,6 +38,9 @@ export interface JITEngineOptions {
   driftMode?: DriftMode; // default 'evolve'
   persistence?: boolean | { filePath?: string }; // default false
   codegenOutputDir?: string;
+  upstreamClient?: UpstreamClient;
+  rateLimiter?: RateLimiter;
+  tenantStore?: TenantStore;
   onFreeze?: (result: CodegenResult) => void;
   onDrift?: (route: string, error: string) => void;
 }
@@ -39,6 +52,11 @@ export class JITEngine {
   private fallback: FallbackHandler;
   private driftMode: DriftMode;
   private schemaStore?: SchemaStore;
+  private trafficLight: TrafficLightManager;
+  private recentDrifts: Map<string, number> = new Map();
+  private upstreamClient: UpstreamClient;
+  private rateLimiter: RateLimiter;
+  private tenantStore?: TenantStore;
 
   // Multi-version fast-path validator storage: route -> version -> validator
   private fastPathValidators: Map<
@@ -50,19 +68,31 @@ export class JITEngine {
     const client = options?.client || new TypeSafeClient();
     this.driftMode = options?.driftMode || 'evolve';
 
+    this.upstreamClient = options?.upstreamClient || new UpstreamClient();
+    this.rateLimiter = options?.rateLimiter || new RateLimiter();
+    this.tenantStore = options?.tenantStore || new TenantStore();
+
     this.router = new TypeSafeRouter({
       client,
       needleClient: options?.needleClient,
       needleOptions: options?.needleOptions,
       fallbackToNeedleOnNoKey: options?.fallbackToNeedleOnNoKey,
       forceNeedle: options?.forceNeedle,
+      upstreamClient: this.upstreamClient,
+      rateLimiter: this.rateLimiter,
+      tenantStore: this.tenantStore,
     });
     this.codegen = new CodegenEngine(options?.codegenOutputDir);
+
+    this.trafficLight = new TrafficLightManager();
 
     this.observer = new SchemaObserver({
       stabilityThreshold: options?.stabilityThreshold ?? 5,
       confidenceThreshold: options?.confidenceThreshold ?? 0.85,
       onFreeze: async (schema: IRSchema) => {
+        // Clear recent drift flag on freeze
+        this.recentDrifts.delete(schema.route);
+
         // Compile to TS, Go, Python, IR
         const codegenResult = this.codegen.compile(schema);
 
@@ -84,11 +114,13 @@ export class JITEngine {
       router: this.router,
       observer: this.observer,
       onDriftDetected: (route, error) => {
+        // Record drift timestamp to transition light to YELLOW
+        this.recentDrifts.set(route, Date.now());
+
         if (options?.onDrift) {
           options.onDrift(route, error);
         }
       },
-
     });
 
     // Initialize Schema Persistence if enabled
@@ -268,7 +300,35 @@ export class JITEngine {
             isFallback: false,
             softDriftDetected: hasExtraKeys,
             headers,
+            upstreamFetch: (url, opts) => this.upstreamClient.fetch(url, opts).then((r) => r.data),
           };
+
+          if (this.tenantStore) {
+            const apiKey = this.extractApiKey(headers);
+            if (apiKey) {
+              const tenant = this.tenantStore.getTenantByApiKey(apiKey);
+              if (tenant) {
+                ctx.tenant = tenant;
+                if (!this.tenantStore.isRouteAllowed(tenant, targetRoute)) {
+                  throw new UnauthorizedError(`Forbidden: 您的帳號 (${tenant.name}) 無權存取端點 '${targetRoute}'`);
+                }
+                if (tenant.rateLimit) {
+                  const check = this.rateLimiter.checkLimit(`tenant:${tenant.id}`, tenant.rateLimit);
+                  if (!check.allowed) {
+                    throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);
+                  }
+                }
+              }
+            }
+          }
+
+          if (routeDef.rateLimit) {
+            const ipOrId = (headers?.['x-forwarded-for'] as string) || (headers?.['x-real-ip'] as string) || 'client_direct';
+            const check = this.rateLimiter.checkLimit(`${targetRoute}:${ipOrId}`, routeDef.rateLimit);
+            if (!check.allowed) {
+              throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);
+            }
+          }
 
           const data = await routeDef.handler(matchedValidation.data, ctx);
 
@@ -328,7 +388,7 @@ export class JITEngine {
   }
 
   /**
-   * Inspect status of a route
+   * Inspect status of a route (including real-time Traffic Light and Coordination state)
    */
   public getRouteStatus(route: string): {
     route: string;
@@ -336,14 +396,34 @@ export class JITEngine {
     metrics: ReturnType<SchemaObserver['getMetrics']>;
     frozenSchema?: IRSchema;
     frozenSchemas: IRSchema[];
+    trafficLight: RouteTrafficLight;
   } {
+    const isFrozen = this.observer.isFrozen(route);
+    const metrics = this.observer.getMetrics(route);
+    const lastDrift = this.recentDrifts.get(route);
+    const hasRecentDrift = lastDrift !== undefined && Date.now() - lastDrift < 45000;
+    const trafficLight = this.trafficLight.evaluateLight(route, isFrozen, metrics, hasRecentDrift);
+
     return {
       route,
-      isFrozen: this.observer.isFrozen(route),
-      metrics: this.observer.getMetrics(route),
+      isFrozen,
+      metrics,
       frozenSchema: this.observer.getFrozenSchema(route),
       frozenSchemas: this.observer.getFrozenSchemas(route),
+      trafficLight,
     };
+  }
+
+  public getTrafficLightManager(): TrafficLightManager {
+    return this.trafficLight;
+  }
+
+  public acquireLock(options: LockAcquireOptions) {
+    return this.trafficLight.acquireLock(options);
+  }
+
+  public releaseLock(route: string, role?: 'client' | 'server' | 'system' | 'force') {
+    return this.trafficLight.releaseLock(route, role);
   }
 
   public getRouter(): TypeSafeRouter {
@@ -373,5 +453,30 @@ export class JITEngine {
 
   public getSchemaStore(): SchemaStore | undefined {
     return this.schemaStore;
+  }
+
+  public getUpstreamClient(): UpstreamClient {
+    return this.upstreamClient;
+  }
+
+  public getRateLimiter(): RateLimiter {
+    return this.rateLimiter;
+  }
+
+  public getTenantStore(): TenantStore | undefined {
+    return this.tenantStore;
+  }
+
+  private extractApiKey(headers?: Record<string, string | string[] | undefined>): string {
+    if (!headers) return '';
+    const authHeader = headers['authorization'] || headers['Authorization'];
+    const authStr = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+    if (authStr && authStr.startsWith('Bearer ')) {
+      return authStr.substring(7).trim();
+    }
+    const keyHeader = headers['x-api-key'] || headers['X-API-KEY'] || headers['x-apikey'];
+    const keyStr = Array.isArray(keyHeader) ? keyHeader[0] : keyHeader;
+    if (keyStr) return keyStr.trim();
+    return '';
   }
 }

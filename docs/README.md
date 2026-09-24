@@ -80,8 +80,27 @@
 * **業務 API 規格快照發布與秒級降版**：`npx jit-api release <ver>` 建立規格快照；`npx jit-api rollback <ver>` 零停機即時回滾。
 * **使用者升級方法**：`npx jit-api` 自動無痛升級、`npm update -g`、`pip install -U` 與 Docker 映像檔更新。
 
-### 11. 📋 [完整版本歷史與更新日誌 (Changelog)](./changelog.md)
+### 11. 🚦 [角色切換工作台與交通燈號防溜溜球協同機制 (Role Workbench & Traffic Light Protocol)](#)
+* **雙端專屬工作台**：頂部一鍵切換 `👤 Client 工作台`（Mock、Fuzz 流量、SDK 一鍵匯出）與 `🖥️ Server 工作台`（Spec 編修熱重載、Phase 3 固化鎖定、k6 壓測），具備獨立且自包含的使用體驗。
+* **交通燈號協定 (Traffic Light Protocol)**：
+  * 🟢 **綠燈 (SYNCED)**：雙端規格穩定對齊，可自由測試或微調。
+  * 🟡 **黃燈 (NEGOTIATING)**：演進協商中（Phase 1/2 或 Drift 變異），提示對方正在改動，等待收斂。
+  * 🔴 **紅燈 (LOCKED)**：互斥鎖定（Server 壓測中或 Client 錄製中），提示另一方暫停變更，杜絕「你改我改」的溜溜球震盪。
+
+### 12. 📱 [LINE Bot 與自然語言協同溝通架構規劃指南](./line_bot_architecture.md)
+* **極簡配置一鍵直通**：本地填入 `.env` 憑證，執行 `./run.sh` 即自動啟動安全 HTTPS 隧道並輸出 Webhook URL。
+* **非技術人員友好對話**：透過 LINE 直接詢問 API 紅綠燈狀態、觸發下單測試並即時接收 Flex Message 卡片回報。
+* **主動推播告警**：後端發生 Drift 變異或亮 🔴 紅燈時，主動推播給負責人。
+
+### 13. 📋 [完整版本歷史與更新日誌 (Changelog)](./changelog.md)
 * 追蹤每一版的重大架構演進、功能增強、修復項目與演進歷程。
+
+### 14. 🌐 [JIT API 分享中心 (Master Hub) — Hugging Face Spaces 部署與多角色協同指南](./huggingface_sharing_center_guide.md)
+* **1 位 Master 總控架構**：Master 掌控全系統與密鑰，搭配 Claude Code / Codex / Gemini CLI 自動處理 API 需求。
+* **Hugging Face Spaces 零成本部署**：Node.js / Docker 容器託管、自動 7860 Port 綁定與 HF Secrets 零洩漏資安防線。
+* **LINE 多角色協同矩陣**：客戶（Client，嚴格隔離僅限授權端點）、專案經理（PM，提新需求與查全域端點）與協同工程師。
+* **Jev 重要度評分 (P0~P3) 與分流**：自動計算情境重要度，遇到破壞性變更鎖定為每週例會討論 (`DISCUSS_WEEKLY_MEETING`)。
+* **第三方 API 加值轉接與頻率限制**：SSRF 內網攻擊攔截、60 秒記憶體快取與多租戶 API Key Sliding-Window 429 限速。
 
 
 ---

@@ -43,6 +43,10 @@
           <span class="engine-icon">⚡</span>
           <span id="engineStatusText">Engine: Detecting...</span>
         </div>
+        <div class="status-pill status-auth" id="masterAuthPill" style="cursor: pointer;" title="Master 認證狀態（點擊登入/登出）">
+          <span class="auth-icon" id="masterAuthIcon">👤</span>
+          <span id="masterAuthText">訪客模式 (唯讀)</span>
+        </div>
         <button class="refresh-btn" id="globalRefreshBtn" title="重新整理所有狀態">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
@@ -51,33 +55,72 @@
       </div>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="tab-navigation">
-      <button class="tab-btn active" data-tab="tab-routes">
-        <span class="tab-icon">🧭</span>
-        <span>路由即時觀測</span>
-        <span class="tab-counter" id="routeCountBadge">0</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-benchmark">
-        <span class="tab-icon">⚡</span>
-        <span>Grafana k6 壓力測試</span>
-        <span class="badge-accent">Live</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-specs">
-        <span class="tab-icon">📝</span>
-        <span>Markdown API 規格書</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-contracts">
-        <span class="tab-icon">📦</span>
-        <span>凍結合約代碼</span>
-      </button>
-    </nav>
+    <!-- Role Switcher & Traffic Light Coordination Bar -->
+    <div class="role-switcher-banner">
+      <div class="role-selector-group">
+        <span class="role-label">操作角色工作台：</span>
+        <button class="role-btn" data-role="client" id="roleClientBtn">
+          <span class="role-icon">👤</span>
+          <span class="role-name">Client 端工作台</span>
+          <span class="role-tag">Mock / 流量 / SDK</span>
+        </button>
+        <button class="role-btn" data-role="server" id="roleServerBtn">
+          <span class="role-icon">🖥️</span>
+          <span class="role-name">Server 端工作台</span>
+          <span class="role-tag">規格 / 凍結 / k6</span>
+        </button>
+        <button class="role-btn active" data-role="overview" id="roleOverviewBtn">
+          <span class="role-icon">🌐</span>
+          <span class="role-name">雙端協同總覽</span>
+          <span class="role-tag">路由拓撲 / 狀態矩陣</span>
+        </button>
+        <button class="role-btn" data-role="line" id="roleLineBtn">
+          <span class="role-icon">📱</span>
+          <span class="role-name">LINE 控制中心 (Master)</span>
+          <span class="role-tag">工單 / 白名單 / Jev 審查</span>
+        </button>
+        <button class="role-btn" data-role="upstream" id="roleUpstreamBtn">
+          <span class="role-icon">🔑</span>
+          <span class="role-name">API 轉接與租戶</span>
+          <span class="role-tag">Upstream / 頻率限制 / Key</span>
+        </button>
+      </div>
+
+      <div class="coordination-light-pill" id="globalCoordinationPill" title="雙端協同狀態：防範溜溜球效應">
+        <span class="traffic-dot dot-green" id="globalTrafficDot"></span>
+        <span class="coordination-text" id="globalCoordinationText">🟢 雙端對齊中：可自由發送與編輯</span>
+      </div>
+    </div>
 
     <!-- Main Content Area -->
     <main class="main-content">
+
+      <!-- ================= ROLE VIEW 1: 雙端協同總覽 (Overview) ================= -->
+      <div class="role-view active" id="viewOverview">
+        <!-- Navigation Tabs -->
+        <nav class="tab-navigation">
+          <button class="tab-btn active" data-tab="tab-routes">
+            <span class="tab-icon">🧭</span>
+            <span>路由即時觀測</span>
+            <span class="tab-counter" id="routeCountBadge">0</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-benchmark">
+            <span class="tab-icon">⚡</span>
+            <span>Grafana k6 壓力測試</span>
+            <span class="badge-accent">Live</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-specs">
+            <span class="tab-icon">📝</span>
+            <span>Markdown API 規格書</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-contracts">
+            <span class="tab-icon">📦</span>
+            <span>凍結合約代碼</span>
+          </button>
+        </nav>
       
-      <!-- ================= TAB 1: 路由即時觀測 ================= -->
-      <section class="tab-pane active" id="tab-routes">
+        <!-- ================= TAB 1: 路由即時觀測 ================= -->
+        <section class="tab-pane active" id="tab-routes">
         <!-- Stats Row -->
         <div class="stats-grid">
           <div class="stat-card">
@@ -356,6 +399,596 @@
           <pre class="contract-code-view" id="contractCodeView">點擊上方分頁檢視產出代碼...</pre>
         </div>
       </section>
+      </div><!-- End viewOverview -->
+
+      <!-- ================= ROLE VIEW 2: Client 端工作台 ================= -->
+      <div class="role-view" id="viewClient" style="display: none;">
+        <!-- Client Hero & Traffic Light Status -->
+        <div class="role-hero client-hero">
+          <div class="role-hero-content">
+            <div class="role-badge client-badge">👤 CLIENT WORKBENCH</div>
+            <h2>前端 / 客戶端工程師工作台</h2>
+            <p>零後端 Mock 開發、合成流量壓力注入、混沌工程、SDK 代碼產出與防溜溜球雙端鎖定。</p>
+          </div>
+          <div class="role-coordination-card">
+            <div class="coord-card-header">
+              <span class="coord-label">當前選取路由協調燈號</span>
+              <div class="traffic-light-pill" id="clientTrafficPill">
+                <span class="traffic-dot dot-green" id="clientTrafficDot"></span>
+                <span id="clientTrafficText">🟢 綠燈：安全可調用</span>
+              </div>
+            </div>
+            <div class="coord-actions">
+              <button class="coord-lock-btn" id="clientAcquireLockBtn" title="獲取客戶端測試鎖，通知後端暫緩更動">
+                <span>🔒 鎖定客戶端測試</span>
+              </button>
+              <button class="coord-unlock-btn" id="clientReleaseLockBtn" title="釋放鎖定">
+                <span>🔓 釋放</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="role-grid">
+          <!-- Client Left Column: Target & Mock & Traffic Generator -->
+          <div class="role-column">
+            <!-- Target Route Selector -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>🎯 測試目標端點 (Target API Route)</h4>
+                <span class="text-dim">選擇要對接的端點</span>
+              </div>
+              <div class="tool-body">
+                <select id="clientRouteSelect" class="styled-select" style="width: 100%;">
+                  <option value="">載入中...</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Smart Mock & Digital Twin Selector -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>🎭 Smart Mock & 數位孿生切換 (Zero-Backend Mode)</h4>
+                <span class="badge-accent" id="clientMockBadge">Fast-Path 0ms</span>
+              </div>
+              <div class="tool-body">
+                <p class="tool-desc">後端尚未完成或處於開發階段時，可切換為 JIT 智慧 Mock 伺服器，依據規格自動回傳真實結構。</p>
+                <div class="mock-mode-toggles">
+                  <label class="toggle-option selected" id="optMockFast">
+                    <input type="radio" name="clientTargetMode" value="mock" checked />
+                    <div>
+                      <div class="option-title">⚡ 智慧 Mock 模式 (0ms)</div>
+                      <div class="option-sub">純本地靜態 Fast-Path，零後端阻礙極速對接</div>
+                    </div>
+                  </label>
+                  <label class="toggle-option" id="optMockLive">
+                    <input type="radio" name="clientTargetMode" value="live" />
+                    <div>
+                      <div class="option-title">🔌 真實 Gateway 模式 (/api/jit)</div>
+                      <div class="option-sub">轉發至 JIT 引擎實際呼叫後端實現與動態驗證</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Synthetic Traffic & Chaos Generator -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>🤖 合成流量注入與混沌測試 (Chaos & Fuzz Suite)</h4>
+                <span class="badge-pill" id="clientFuzzBadge">Auto-Repair 驗收</span>
+              </div>
+              <div class="tool-body">
+                <p class="tool-desc">發送高壓或異常測試流量，檢驗 JIT 引擎是否能正確自動修復（如 camelCase 轉換或型態轉型）。</p>
+                <div class="fuzz-mode-buttons">
+                  <button class="mode-pill-btn active" data-mode="valid" id="btnTrafficValid">Valid 正常流量</button>
+                  <button class="mode-pill-btn" data-mode="fuzz" id="btnTrafficFuzz">Fuzz 隨機模糊</button>
+                  <button class="mode-pill-btn" data-mode="chaos" id="btnTrafficChaos">Chaos 故障注入</button>
+                </div>
+                <div class="count-slider-group" style="margin-top: 14px;">
+                  <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">
+                    <span>發送請求次數：</span>
+                    <strong id="trafficCountVal" style="color: var(--color-blue);">5 次</strong>
+                  </div>
+                  <input type="range" id="trafficCountSlider" min="1" max="20" value="5" class="styled-range" />
+                </div>
+                <button class="primary-btn" id="runTrafficBtn" style="width: 100%; margin-top: 16px;">
+                  <span>🚀 發送合成流量驗收</span>
+                </button>
+
+                <!-- Traffic Results Log -->
+                <div class="traffic-result-box" id="trafficResultBox" style="display: none; margin-top: 16px;">
+                  <div class="traffic-summary-row">
+                    <span>總發送: <strong id="trafTotal">0</strong></span>
+                    <span style="color: var(--color-emerald);">成功: <strong id="trafSuccess">0</strong></span>
+                    <span style="color: var(--color-amber);">自動修復: <strong id="trafRepaired">0</strong></span>
+                    <span>均時: <strong id="trafLatency">0ms</strong></span>
+                  </div>
+                  <pre class="traffic-log-view" id="trafficLogView"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Client Right Column: Playground & SDK Export -->
+          <div class="role-column">
+            <!-- Client Interactive Playground -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>🚀 客戶端即時調用測試器 (Interactive Playground)</h4>
+                <div class="preset-pill-group">
+                  <button class="preset-pill" id="clientPresetSemantic">自然語言</button>
+                  <button class="preset-pill" id="clientPresetStable">規格化</button>
+                  <button class="preset-pill" id="clientPresetDrift">欄位漂移</button>
+                </div>
+              </div>
+              <div class="tool-body">
+                <div class="console-target-bar" style="margin-bottom: 12px;">
+                  <span class="badge-post">POST</span>
+                  <input type="text" class="console-endpoint-input" id="clientEndpointInput" value="/api/jit" readonly />
+                  <button class="primary-btn" id="clientSendBtn">
+                    <span>發送請求</span>
+                  </button>
+                </div>
+
+                <div class="input-editor-container">
+                  <div class="editor-header">
+                    <span>Payload (JSON)</span>
+                    <button class="small-text-btn" id="clientFormatJsonBtn">排版格式</button>
+                  </div>
+                  <textarea class="code-textarea" id="clientPayloadInput" spellcheck="false" style="min-height: 140px;"></textarea>
+                </div>
+
+                <div class="response-container" style="margin-top: 14px;">
+                  <div class="editor-header">
+                    <span>Response Breakdown</span>
+                    <div class="timing-badge-group">
+                      <span class="badge-pill" id="clientRespPhase">Phase: --</span>
+                      <span class="badge-pill" id="clientRespLatency">Time: --</span>
+                      <span class="badge-pill" id="clientRespAiLatency">AI Latency: --</span>
+                    </div>
+                  </div>
+                  <pre class="code-output" id="clientResponseOutput" style="min-height: 140px;">點擊「發送請求」以檢視即時回傳結果...</pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Client SDK Code Export -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>📦 Client SDK 一鍵匯出 (TypeScript / Python / ConnectRPC)</h4>
+                <div class="contract-lang-selector">
+                  <button class="lang-tab active" data-client-lang="typescript" id="btnSdkTs">TypeScript Fetch</button>
+                  <button class="lang-tab" data-client-lang="python" id="btnSdkPy">Python SDK</button>
+                  <button class="lang-tab" data-client-lang="connect" id="btnSdkConnect">ConnectRPC</button>
+                </div>
+              </div>
+              <div class="tool-body">
+                <div class="code-card-header" style="margin-bottom: 8px;">
+                  <span id="clientSdkFilename" style="font-size: 12px; color: var(--text-dim); font-family: var(--font-mono);">sdk_client.ts</span>
+                  <button class="small-text-btn" id="copyClientSdkBtn">複製代碼</button>
+                </div>
+                <pre class="contract-code-view" id="clientSdkCodeView" style="max-height: 220px; overflow-y: auto;">載入 Client SDK 代碼中...</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- End viewClient -->
+
+      <!-- ================= ROLE VIEW 3: Server 端工作台 ================= -->
+      <div class="role-view" id="viewServer" style="display: none;">
+        <!-- Server Hero & Traffic Light Status -->
+        <div class="role-hero server-hero">
+          <div class="role-hero-content">
+            <div class="role-badge server-badge">🖥️ SERVER WORKBENCH</div>
+            <h2>後端 / 架構師工作台</h2>
+            <p>Markdown API 規格線上編修熱重載、Phase 3 固化鎖定、k6 壓測、版本發布與 SHA-256 回滾。</p>
+          </div>
+          <div class="role-coordination-card">
+            <div class="coord-card-header">
+              <span class="coord-label">當前選取路由協調燈號</span>
+              <div class="traffic-light-pill" id="serverTrafficPill">
+                <span class="traffic-dot dot-green" id="serverTrafficDot"></span>
+                <span id="serverTrafficText">🟢 綠燈：可安全調整規格</span>
+              </div>
+            </div>
+            <div class="coord-actions">
+              <button class="coord-lock-btn" id="serverAcquireLockBtn" title="獲取伺服端發布鎖，通知 Client 暫停變更">
+                <span>🔒 鎖定伺服端發布/壓測</span>
+              </button>
+              <button class="coord-unlock-btn" id="serverReleaseLockBtn" title="釋放鎖定">
+                <span>🔓 釋放</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="role-grid">
+          <!-- Server Left Column: Spec Selector & Phase Freeze -->
+          <div class="role-column">
+            <!-- Target Route & Phase Status Controller -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>❄️ Phase 固化與漂移控制器 (Lifecycle Controller)</h4>
+                <span class="badge-accent" id="serverPhaseBadge">Phase 3: Frozen</span>
+              </div>
+              <div class="tool-body">
+                <div style="margin-bottom: 12px;">
+                  <label class="config-label" for="serverRouteSelect">管理目標路由：</label>
+                  <select id="serverRouteSelect" class="styled-select" style="width: 100%;">
+                    <option value="">載入中...</option>
+                  </select>
+                </div>
+
+                <div class="stat-row-mini" style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+                  <span>收斂進度 (連續匹配):</span>
+                  <strong id="serverSampleProgress" style="color: var(--color-emerald);">3/3 (已固化)</strong>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 12px;">
+                  <button class="primary-btn" id="serverFreezeBtn" style="flex: 1;">
+                    <span>❄️ 手動強制固化 (Fast-Path)</span>
+                  </button>
+                  <button class="secondary-btn" id="serverUnfreezeBtn" style="flex: 1;">
+                    <span>🔥 解凍並重啟演進</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Markdown API Specs List -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>📝 Markdown API 規格書清單</h4>
+                <button class="small-text-btn" id="serverReloadSpecsBtn">熱重載</button>
+              </div>
+              <div class="tool-body">
+                <div class="spec-file-list" id="serverSpecFileList" style="max-height: 220px; overflow-y: auto;">
+                  <div class="loading-state">載入規格列表中...</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Release Snapshot & SHA-256 Rollback -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>🛡️ 版本發布與 SHA-256 回滾 (Release & Rollback)</h4>
+                <span class="badge-pill">防竄改快照</span>
+              </div>
+              <div class="tool-body">
+                <p class="tool-desc">對當前所有 Markdown 規格建立快照與 SHA-256 簽名，可秒級回滾。</p>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                  <input type="text" id="serverReleaseVersionInput" placeholder="例: 1.1.0" class="styled-input" style="flex: 1;" />
+                  <button class="primary-btn" id="serverSnapshotBtn">發布快照</button>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <select id="serverRollbackSelect" class="styled-select" style="flex: 1;">
+                    <option value="">選擇歷史發布版本...</option>
+                  </select>
+                  <button class="secondary-btn" id="serverRollbackBtn">回滾</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Server Right Column: Spec Editor & k6 Benchmark -->
+          <div class="role-column">
+            <!-- Markdown Spec Live Editor -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4 id="serverActiveSpecName">order.api.md</h4>
+                <button class="primary-btn small-btn" id="serverSaveSpecBtn">
+                  <span>💾 儲存並即時重載</span>
+                </button>
+              </div>
+              <div class="tool-body">
+                <textarea id="serverSpecEditor" class="code-textarea" spellcheck="false" style="min-height: 280px; font-size: 13px; line-height: 1.6;"></textarea>
+              </div>
+            </div>
+
+            <!-- Server Quick k6 Benchmark -->
+            <div class="tool-card">
+              <div class="tool-header">
+                <h4>⚡ Grafana k6 壓力測試 (自動獲取 Server 鎖)</h4>
+                <span class="badge-accent">RPS 驗證</span>
+              </div>
+              <div class="tool-body">
+                <p class="tool-desc">執行壓測期間，系統將自動亮起 🔴 紅燈鎖定該路由，避免 Client 端突發干擾。</p>
+                <div style="display: flex; gap: 14px; margin-bottom: 14px;">
+                  <div style="flex: 1;">
+                    <span style="font-size: 12px; color: var(--text-dim);">虛擬使用者 (VUs):</span>
+                    <strong id="serverVusVal" style="color: var(--color-blue); margin-left: 6px;">10 VUs</strong>
+                    <input type="range" id="serverVusSlider" min="1" max="100" value="10" class="styled-range" style="width: 100%; margin-top: 6px;" />
+                  </div>
+                  <div style="flex: 1;">
+                    <span style="font-size: 12px; color: var(--text-dim);">持續時間:</span>
+                    <strong id="serverDurationVal" style="color: var(--color-blue); margin-left: 6px;">5s</strong>
+                    <input type="range" id="serverDurationSlider" min="2" max="30" value="5" class="styled-range" style="width: 100%; margin-top: 6px;" />
+                  </div>
+                </div>
+                <button class="primary-btn" id="serverRunK6Btn" style="width: 100%;">
+                  <span>⚡ 啟動 k6 壓測 (獨佔鎖定)</span>
+                </button>
+
+                <div class="server-bench-result" id="serverBenchResultBox" style="display: none; margin-top: 14px;">
+                  <div class="traffic-summary-row">
+                    <span>RPS: <strong id="srvRps">0 req/s</strong></span>
+                    <span>均時: <strong id="srvAvg">0ms</strong></span>
+                    <span>P95: <strong id="srvP95">0ms</strong></span>
+                    <span style="color: var(--color-emerald);">成功: <strong id="srvSuccess">100%</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- End viewServer -->
+
+      <!-- ================= ROLE VIEW 4: LINE 協同控制中心 (Master) ================= -->
+      <div class="role-view" id="viewLine" style="display: none;">
+        <!-- LINE Banner & Stats -->
+        <div class="workspace-header-banner line-theme-banner">
+          <div class="banner-info">
+            <div class="banner-title-row">
+              <span class="banner-badge line-badge">📱 Master Hub</span>
+              <h2>LINE 協同控制中心 & 需求工單樞紐</h2>
+            </div>
+            <p class="banner-desc">
+              單一 Master 工程師服務多位 Client / Server 協同者。已知 API 規格自動秒回，新需求由 LINE Bot 自動收單立案 (<code>#TKT-xxxx</code>)，並由 TypeSafe Jev 結構化微決策輔助 Master 批閱。
+            </p>
+          </div>
+          <div class="banner-metrics">
+            <div class="mini-metric">
+              <span class="mini-label">Bot 狀態</span>
+              <strong class="mini-val" id="lineBotStatusText" style="color: #06C755;">🟢 運作中</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="mini-label">待審工單</span>
+              <strong class="mini-val" id="linePendingTicketsCount">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="mini-label">白名單成員</span>
+              <strong class="mini-val" id="lineWhitelistCount">0</strong>
+            </div>
+            <div class="mini-metric">
+              <span class="mini-label">決策引擎</span>
+              <strong class="mini-val" style="color: var(--color-cyan);">TypeSafe Jev</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-Column Layout: Settings & Whitelist (Left), Ticket Board (Center), Chat Simulator (Right) -->
+        <div class="line-workspace-grid">
+          
+          <!-- Column 1: Config & Whitelist -->
+          <div class="line-col-left">
+            <!-- Card 1: LINE Bot Credentials -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <span class="panel-title">🔑 LINE Bot 憑證與 Webhook</span>
+                <span class="badge" id="lineCredBadge">Local/Mock</span>
+              </div>
+              <div class="panel-body">
+                <p class="section-hint">填入 LINE Developers 後台憑證，或保留本地模擬模式：</p>
+                <div class="form-group" style="margin-bottom: 10px;">
+                  <label class="form-label" style="font-size: 11px;">Channel Secret:</label>
+                  <input type="password" id="lineChannelSecretInput" class="input-text" placeholder="從 LINE Developers 複製" />
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                  <label class="form-label" style="font-size: 11px;">Channel Access Token:</label>
+                  <input type="password" id="lineAccessTokenInput" class="input-text" placeholder="從 LINE Developers 複製" />
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                  <label class="form-label" style="font-size: 11px;">本機 Webhook URL 入口:</label>
+                  <div style="display: flex; gap: 6px;">
+                    <input type="text" id="lineWebhookUrlInput" class="input-text" readonly value="http://localhost:3005/api/line/webhook" style="font-size: 11px;" />
+                    <button class="secondary-btn" id="copyWebhookUrlBtn" title="複製 Webhook 網址" style="padding: 4px 10px; font-size: 11px;">複製</button>
+                  </div>
+                  <span class="field-tip" style="font-size: 10px; color: var(--text-tertiary); display: block; margin-top: 4px;">
+                    提示：實體部署可用 <code>cloudflared</code> 或 <code>localtunnel</code> 映射本地 3005 埠。
+                  </span>
+                </div>
+                <button class="primary-btn" id="saveLineConfigBtn" style="width: 100%; margin-top: 6px;">
+                  <span>💾 儲存 LINE 組態</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Card 2: Whitelist Management -->
+            <div class="panel-card" style="margin-top: 16px;">
+              <div class="panel-header">
+                <span class="panel-title">🛡️ 授權白名單 (Access Control)</span>
+                <span class="badge" id="whitelistBadge">防灌水啟用</span>
+              </div>
+              <div class="panel-body">
+                <p class="section-hint">僅白名單人員可在 LINE 向 Bot 查詢或提單，保護 Master 系統：</p>
+                <div class="whitelist-list" id="whitelistContainer" style="max-height: 180px; overflow-y: auto;">
+                  <!-- Dynamically populated -->
+                </div>
+                <div class="whitelist-add-form" style="margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 10px;">
+                  <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 6px;">➕ 新增授權成員</span>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                    <input type="text" id="newWhitelistId" class="input-text" placeholder="UserID / 代號" style="font-size: 11px;" />
+                    <input type="text" id="newWhitelistName" class="input-text" placeholder="成員姓名 (如 Alice)" style="font-size: 11px;" />
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                    <input type="text" id="newWhitelistApis" class="input-text" placeholder="授權端點 (如 /api/users, 或 *)" style="font-size: 11px;" />
+                    <input type="text" id="newWhitelistCompany" class="input-text" placeholder="所屬單位/客戶公司" style="font-size: 11px;" />
+                  </div>
+                  <div style="display: flex; gap: 6px;">
+                    <select id="newWhitelistRole" class="input-select" style="flex: 1; font-size: 11px;">
+                      <option value="client">Client (客戶/僅限授權端點)</option>
+                      <option value="server">Server (合作後端工程師)</option>
+                      <option value="pm">PM (產品經理/可提新需求)</option>
+                      <option value="tester">QA (測試)</option>
+                    </select>
+                    <button class="primary-btn" id="addWhitelistBtn" style="padding: 4px 12px; font-size: 11px;">加入名單</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Ticket Management Board (#TKT-xxxx) -->
+          <div class="line-col-center">
+            <div class="panel-card" style="height: 100%; display: flex; flex-direction: column;">
+              <div class="panel-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="panel-title">📋 需求工單看板 (#TKT-xxxx)</span>
+                  <span class="tab-counter" id="ticketCountBadge">0</span>
+                </div>
+                <div class="ticket-filter-group">
+                  <button class="filter-chip active" data-filter="ALL">全部</button>
+                  <button class="filter-chip" data-filter="PENDING">待審核</button>
+                  <button class="filter-chip" data-filter="APPROVED">已批准</button>
+                  <button class="filter-chip" data-filter="SYNTHESIZED">已合成</button>
+                </div>
+              </div>
+              <div class="panel-body" style="flex: 1; overflow-y: auto; padding: 12px;">
+                <div class="ticket-cards-container" id="ticketCardsContainer">
+                  <!-- Dynamically populated ticket cards -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: LINE Interactive Chat Simulator -->
+          <div class="line-col-right">
+            <div class="panel-card line-chat-panel">
+              <div class="panel-header line-chat-header">
+                <div class="chat-header-user">
+                  <span class="chat-avatar">📱</span>
+                  <div>
+                    <span class="chat-bot-name">JIT LINE Assistant</span>
+                    <span class="chat-status-sub">24/7 自動秒回 + 工單受理</span>
+                  </div>
+                </div>
+                <select id="simulatedUserSelect" class="input-select" style="max-width: 140px; font-size: 11px;">
+                  <option value="U_FRONTEND_ALICE">Frontend Alice</option>
+                  <option value="U_MOBILE_BOB">App Bob</option>
+                  <option value="U_PM_CAROL">PM Carol</option>
+                  <option value="U_DEV_LEAD">Master Engineer</option>
+                </select>
+              </div>
+
+              <!-- Quick prompt shortcuts -->
+              <div class="chat-shortcuts">
+                <button class="shortcut-chip" data-msg="查詢 /api/users">🔍 查 /api/users</button>
+                <button class="shortcut-chip" data-msg="查詢目前 API 狀態與紅綠燈">🚦 查總覽燈號</button>
+                <button class="shortcut-chip" data-msg="請在 /api/orders 增加 couponCode string 欄位">➕ 提單加 couponCode</button>
+                <button class="shortcut-chip" data-msg="新增一個支付端點 /api/payment/checkout">🚀 提單開新 API</button>
+              </div>
+
+              <!-- Chat Message History -->
+              <div class="chat-body" id="chatSimulatorBody">
+                <div class="chat-bubble bot-bubble">
+                  <div class="bubble-sender">🤖 JIT LINE Bot</div>
+                  <div class="bubble-text">
+                    您好！我是 JIT API 協同助理。<br/>
+                    • 輸入「查詢 /api/xxx」可查詢規格與燈號<br/>
+                    • 輸入任何新增或修改需求，我會自動為您立單 (#TKT-xxxx) 並通知 Master 審核！
+                  </div>
+                </div>
+              </div>
+
+              <!-- Chat Input Footer -->
+              <div class="chat-footer">
+                <input type="text" id="chatSimulatorInput" class="input-text chat-input" placeholder="輸入訊息模擬 LINE 對話..." />
+                <button class="primary-btn chat-send-btn" id="chatSimulatorSendBtn">發送</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- End viewLine -->
+
+      <!-- ================= ROLE VIEW 5: API 轉接與租戶管理 (Upstream Hub) ================= -->
+      <div class="role-view" id="viewUpstream">
+        <div class="role-banner">
+          <div class="role-badge" style="background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
+            <span>🔑 API 轉接加值與安全租戶管理 (Master Hub)</span>
+          </div>
+          <p class="role-desc">
+            安全託管第三方機密（氣象局、TDX 交通、OpenAI 等），具備 <strong>SSRF 內網攻擊攔截</strong> 與 <strong>60s 記憶體快取 (TTL)</strong>，並為客戶與 PM 發行具頻率限制的 API Key。
+          </p>
+        </div>
+
+        <div class="upstream-workspace-grid" style="margin-top: 16px;">
+          <!-- Panel 1: Upstream Secrets -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title">🛡️ Upstream 機密金鑰庫 (.jit/upstream_secrets.json)</span>
+              <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399;">Git 嚴格排除 (Zero Leak)</span>
+            </div>
+            <div class="panel-body">
+              <p class="section-hint">
+                第三方服務的金鑰安全儲存於此或由 HF Space Secrets 注入，前端永不洩漏明文：
+              </p>
+              <div id="upstreamSecretsContainer" style="margin-bottom: 16px; min-height: 100px;">
+                <!-- Populated dynamically -->
+              </div>
+              <div style="border-top: 1px dashed var(--border-color); padding-top: 12px;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 6px;">➕ 新增/更新 Upstream 機密</span>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                  <input type="text" id="newSecretRef" class="input-text" placeholder="機密代號 (如 cwa_weather, tdx_key)" style="font-size: 11px;" />
+                  <input type="password" id="newSecretVal" class="input-text" placeholder="機密密鑰值 (Token/Key)" style="font-size: 11px;" />
+                </div>
+                <button class="primary-btn" id="saveSecretBtn" style="width: 100%; font-size: 11px;">
+                  <span>🔒 安全儲存機密</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel 2: Multi-Tenant & API Keys -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <span class="panel-title">👥 多租戶 API Key 與頻率限制</span>
+              <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">Sliding-Window 429</span>
+            </div>
+            <div class="panel-body">
+              <p class="section-hint">
+                為不同客戶與 PM 配置端點授權範圍與速率配額：
+              </p>
+              <div style="overflow-x: auto; margin-bottom: 16px;">
+                <table class="tenant-table" id="tenantsTable">
+                  <thead>
+                    <tr>
+                      <th>租戶名稱</th>
+                      <th>身分角色</th>
+                      <th>API Key (前綴)</th>
+                      <th>授權端點</th>
+                      <th>頻率限制</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tenantsTableBody">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+              <div style="border-top: 1px dashed var(--border-color); padding-top: 12px;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 6px;">➕ 發行新 API Key</span>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px;">
+                  <input type="text" id="newTenantName" class="input-text" placeholder="租戶/客戶名稱 (如 Partner Beta)" style="font-size: 11px;" />
+                  <select id="newTenantRole" class="input-select" style="font-size: 11px;">
+                    <option value="client">Client (客戶)</option>
+                    <option value="pm">PM (專案經理)</option>
+                    <option value="dev">Dev (協同工程師)</option>
+                  </select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                  <input type="text" id="newTenantRoutes" class="input-text" placeholder="授權端點 (如 /api/users, 或 *)" style="font-size: 11px;" />
+                  <input type="text" id="newTenantRate" class="input-text" placeholder="速率限制 (如 60/分, 500/日)" style="font-size: 11px;" />
+                </div>
+                <button class="primary-btn" id="createTenantBtn" style="width: 100%; font-size: 11px;">
+                  <span>✨ 生成租戶金鑰</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- End viewUpstream -->
 
     </main>
 
@@ -387,6 +1020,33 @@
     </div>
     <div class="terminal-drawer-body" id="terminalBody">
       <div id="terminalContainer" class="terminal-viewport"></div>
+    </div>
+  </div>
+
+  <!-- Master Login Modal Dialog -->
+  <div class="modal-backdrop" id="masterLoginModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span class="modal-title">🛡️ Master 管理員身分認證</span>
+        <button class="modal-close-btn" id="closeMasterModalBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 14px;">
+          請輸入伺服器 <code>MASTER_PASSWORD</code> 以解鎖規格增修、k6 壓測、工單核准與 Web Terminal 終端機權限。
+        </p>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label class="form-label" style="font-size: 11px;">Master 密碼：</label>
+          <input type="password" id="masterPasswordInput" class="input-text" placeholder="請輸入 Master 密碼..." style="width: 100%;" />
+        </div>
+        <div id="masterLoginAlert" style="font-size: 11px; color: #fb7185; display: none; margin-bottom: 8px;"></div>
+        <div style="font-size: 10px; color: var(--text-dim);">
+          🔒 系統具備暴力破解防護：連續輸入錯誤 5 次將鎖定該 IP 15 分鐘。
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary-btn" id="cancelMasterModalBtn">取消</button>
+        <button class="primary-btn" id="submitMasterLoginBtn">解鎖管理權限</button>
+      </div>
     </div>
   </div>
 

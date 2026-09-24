@@ -37,6 +37,9 @@ const {
   MockServer,
   MockClient,
   ProxyRecorder,
+  TicketStore,
+  LineService,
+  JevReviewer,
 } = coreModules;
 
 const args = process.argv.slice(2);
@@ -412,6 +415,15 @@ ConnectAdapter.attachToExpress(app, engine, mdLoader, { port: PORT, stageFilter,
 // 5. Benchmark Runner
 const benchRunner = new BenchmarkRunner();
 
+// 6. LINE 協同與工單系統 (Master 控制核心)
+const ticketStore = new TicketStore();
+const jevReviewer = new JevReviewer();
+const lineService = new LineService({
+  ticketStore,
+  jitEngine: engine,
+  trafficLightManager: engine.getTrafficLightManager(),
+});
+
 // ================= API Endpoints =================
 app.get('/api/info', (req, res) => {
   let pkgVersion = '1.1.0';
@@ -463,6 +475,167 @@ app.post('/api/jit', async (req, res) => {
 
 app.get('/api/jit/status/:route', (req, res) => {
   res.json(engine.getRouteStatus(req.params.route));
+});
+
+// Coordination & Traffic Light APIs
+app.get('/api/coordination/status', (req, res) => {
+  const routes = engine.getRoutes().map((r) => {
+    const s = engine.getRouteStatus(r.route);
+    return {
+      route: r.route,
+      trafficLight: s.trafficLight,
+      isFrozen: s.isFrozen,
+      phase: s.trafficLight.phase,
+    };
+  });
+  const locks = engine.getTrafficLightManager().listLocks();
+  res.json({ routes, locks });
+});
+
+app.post('/api/coordination/lock', (req, res) => {
+  const { route, role, reason, ttlMs } = req.body;
+  if (!route || !role) {
+    return res.status(400).json({ error: 'Missing required field: route and role' });
+  }
+  const result = engine.acquireLock({
+    route,
+    role,
+    reason: reason || `Active operation by ${role}`,
+    ttlMs: ttlMs ? Number(ttlMs) : undefined,
+  });
+  if (!result.success) {
+    return res.status(409).json(result);
+  }
+  res.json(result);
+});
+
+app.post('/api/coordination/unlock', (req, res) => {
+  const { route, role } = req.body;
+  if (!route) {
+    return res.status(400).json({ error: 'Missing required field: route' });
+  }
+  const released = engine.releaseLock(route, role || 'force');
+  res.json({ success: released, route });
+});
+
+// ================= LINE 協同與工單中心 API (Master 控制台) =================
+app.get('/api/line/config', (req, res) => {
+  res.json(lineService.getConfig());
+});
+
+app.post('/api/line/config', (req, res) => {
+  const updated = lineService.saveConfig(req.body);
+  res.json({ success: true, config: updated });
+});
+
+app.get('/api/line/whitelist', (req, res) => {
+  res.json(ticketStore.getWhitelist());
+});
+
+app.post('/api/line/whitelist', (req, res) => {
+  const { id, name, role } = req.body;
+  if (!id || !name) return res.status(400).json({ error: '缺少 id 或 name 欄位' });
+  const user = ticketStore.addWhitelistUser({
+    id,
+    name,
+    role: role || 'client',
+    addedAt: Date.now(),
+  });
+  res.json({ success: true, user });
+});
+
+app.delete('/api/line/whitelist/:id', (req, res) => {
+  const ok = ticketStore.removeWhitelistUser(req.params.id);
+  res.json({ success: ok, id: req.params.id });
+});
+
+app.get('/api/line/tickets', (req, res) => {
+  res.json(ticketStore.listTickets());
+});
+
+app.post('/api/line/tickets/:id/review', async (req, res) => {
+  const ticket = ticketStore.getTicket(req.params.id);
+  if (!ticket) return res.status(404).json({ error: '找不到該工單' });
+
+  ticketStore.updateTicket(ticket.id, { status: 'EVALUATING' });
+  const existingRoutes = engine.getRoutes().map((r) => ({
+    path: r.route,
+    description: r.description,
+    schema: r.samplePayload,
+  }));
+
+  const review = await jevReviewer.reviewTicket(ticket, existingRoutes);
+  const updated = ticketStore.updateTicket(ticket.id, {
+    status: review.decision === 'HIGH_BREAKING_RISK' ? 'REJECTED' : 'PENDING',
+    jevReview: review,
+  });
+  res.json({ success: true, ticket: updated });
+});
+
+app.post('/api/line/tickets/:id/action', (req, res) => {
+  const { action, notes, synthesizeSpec } = req.body;
+  const ticket = ticketStore.getTicket(req.params.id);
+  if (!ticket) return res.status(404).json({ error: '找不到該工單' });
+
+  if (action === 'APPROVE') {
+    let specFile = ticket.synthesizedSpecFile;
+    if (synthesizeSpec && ticket.jevReview?.suggestedPatch) {
+      try {
+        const cleanName = ticket.id.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const filename = `ticket_${cleanName}.api.md`;
+        const specDir = path.resolve('specs');
+        if (!fs.existsSync(specDir)) fs.mkdirSync(specDir, { recursive: true });
+        const filePath = path.join(specDir, filename);
+        fs.writeFileSync(filePath, ticket.jevReview.suggestedPatch, 'utf-8');
+        specFile = filename;
+        mdLoader.reload(engine);
+      } catch (err) {
+        console.error('[MasterAction] Spec synthesis error:', err);
+      }
+    }
+    const updated = ticketStore.updateTicket(ticket.id, {
+      status: synthesizeSpec ? 'SYNTHESIZED' : 'APPROVED',
+      masterNotes: notes || 'Master 已批准此需求',
+      synthesizedSpecFile: specFile,
+    });
+    return res.json({ success: true, ticket: updated });
+  } else if (action === 'REJECT') {
+    const updated = ticketStore.updateTicket(ticket.id, {
+      status: 'REJECTED',
+      masterNotes: notes || 'Master 經評估駁回此需求',
+    });
+    return res.json({ success: true, ticket: updated });
+  }
+  res.status(400).json({ error: '無效的操作動作，僅支援 APPROVE 或 REJECT' });
+});
+
+app.post('/api/line/simulate', async (req, res) => {
+  const { userId, userName, message } = req.body;
+  if (!message) return res.status(400).json({ error: '缺少 message 訊息文字' });
+  const result = await lineService.handleMessage({
+    source: 'simulator',
+    userId: userId || 'U_DEV_LEAD',
+    userName: userName || 'Master Engineer',
+    message,
+  });
+  res.json(result);
+});
+
+app.post('/api/line/webhook', async (req, res) => {
+  const events = req.body?.events || [];
+  const results = [];
+  for (const evt of events) {
+    if (evt.type === 'message' && evt.message?.type === 'text') {
+      const reply = await lineService.handleMessage({
+        source: 'line',
+        userId: evt.source?.userId || 'U_LINE_ANON',
+        userName: 'LINE User',
+        message: evt.message.text,
+      });
+      results.push(reply);
+    }
+  }
+  res.json({ success: true, count: results.length });
 });
 
 // Spec Management, Contract & Release APIs (Only registered in Dev mode for physical security isolation)
@@ -553,11 +726,24 @@ if (!isProd) {
       sampleSemantic: req.body.sampleSemantic,
     };
 
+    if (options.targetRoute) {
+      engine.acquireLock({
+        route: options.targetRoute,
+        role: 'server',
+        reason: `Grafana k6 壓測進行中 (${options.vus} VUs, ${options.duration})`,
+        ttlMs: 60000,
+      });
+    }
+
     try {
       const result = await benchRunner.run(options);
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    } finally {
+      if (options.targetRoute) {
+        engine.releaseLock(options.targetRoute, 'server');
+      }
     }
   });
 }

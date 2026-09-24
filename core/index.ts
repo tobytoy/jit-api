@@ -18,6 +18,14 @@ export * from './mock_generator.js';
 export * from './mock_server.js';
 export * from './mock_client.js';
 export * from './proxy_recorder.js';
+export * from './coordination.js';
+export * from './ticket_store.js';
+export * from './jev_reviewer.js';
+export * from './line_service.js';
+export * from './master_auth.js';
+export * from './upstream_client.js';
+export * from './rate_limiter.js';
+export * from './tenant_store.js';
 
 export * from '../blocks/ast_typescript/ts_block.js';
 export * from '../blocks/ast_golang/go_block.js';

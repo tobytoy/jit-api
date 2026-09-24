@@ -12,7 +12,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 export class TerminalServer {
   private wss: WebSocketServer;
 
-  constructor(server: http.Server, path: string = '/ws/terminal') {
+  private authValidator?: (req: http.IncomingMessage) => boolean;
+
+  constructor(server: http.Server, path: string = '/ws/terminal', authValidator?: (req: http.IncomingMessage) => boolean) {
+    this.authValidator = authValidator;
     this.wss = new WebSocketServer({ server, path });
     this.wss.on('error', () => {
       // Ignored: HTTP server error listener handles EADDRINUSE
@@ -23,7 +26,12 @@ export class TerminalServer {
   private setup() {
     const defaultShell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
 
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+      if (this.authValidator && !this.authValidator(req)) {
+        ws.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[401 Unauthorized] 此 Web Terminal 僅供 Master 登入後使用。\x1b[0m\r\n' }));
+        ws.close(4401, 'Unauthorized');
+        return;
+      }
       console.log('💻 [Web Terminal] 客戶端建立連線，啟動虛擬終端 (PTY)...');
 
       let ptyProcess: pty.IPty;

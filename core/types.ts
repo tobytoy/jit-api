@@ -41,7 +41,8 @@ export interface JevNoulQuestion {
 
 export interface JevScoreQuestion {
   type: 'score';
-  levels: Record<string, string>;
+  criteria?: string[] | Record<string, string>;
+  levels?: Record<string, string>;
 }
 
 export type JevQuestion = JevChoiceQuestion | JevNoulQuestion | JevScoreQuestion;
@@ -104,6 +105,8 @@ export interface RouteDefinition {
   version?: string;
   stage?: 'dev' | 'prod';
   auth?: AuthDefinition;
+  upstream?: UpstreamDefinition;
+  rateLimit?: RateLimitDefinition;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
   enumFields?: Record<string, Record<string, string>>;
@@ -141,6 +144,72 @@ export interface SchemaSnapshot {
   schemas: Record<string, IRSchema[]>;
 }
 
+export interface UpstreamDefinition {
+  targetUrl: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  headers?: Record<string, string>;
+  secretRef?: string;
+  cacheTtlSeconds?: number;
+  timeoutMs?: number;
+}
+
+export interface RateLimitDefinition {
+  windowSeconds: number;
+  maxRequests: number;
+  dailyQuota?: number;
+}
+
+export type UserRole = 'master' | 'dev' | 'pm' | 'client' | 'guest';
+
+export interface TenantDefinition {
+  id: string;
+  name: string;
+  role: UserRole;
+  apiKey: string;
+  allowedRoutes: string[]; // ['*'] or specific routes
+  rateLimit?: RateLimitDefinition;
+  lineUserId?: string;
+  company?: string;
+  createdAt: string;
+}
+
+export interface MasterAuthSession {
+  token: string;
+  createdAt: number;
+  expiresAt: number;
+  ip: string;
+  role?: UserRole;
+}
+
+export interface MasterAuthStatus {
+  enabled: boolean;
+  authenticated: boolean;
+  role: 'master' | 'guest';
+  spaceEnvironment: boolean;
+  requiresLogin: boolean;
+}
+
+export interface JevImportanceEvaluation {
+  // 3 Core Dimensions requested by User:
+  importanceScore: number; // 0 - 100
+  importanceLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+  urgencyScore: number; // 0 - 100
+  urgencyLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  riskScore: number; // 0 - 100
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+
+  // Synthesis & Recommendation:
+  score: number; // Overall priority score 0 - 100
+  priority: 'P0' | 'P1' | 'P2' | 'P3';
+  urgency: 'critical' | 'high' | 'medium' | 'low';
+  businessImpact: 'production_outage' | 'client_integration' | 'internal_enhancement' | 'routine_maintenance';
+  technicalRisk: 'critical_breaking' | 'schema_conflict' | 'additive_safe' | 'zero_risk';
+  situationSummary: string;
+  triageAction: 'DISCUSS_WEEKLY_MEETING' | 'MASTER_DIRECT_HANDLE' | 'AI_AGENT_AUTONOMOUS' | 'REJECT';
+  triageAdvice: string;
+  confidence: number;
+}
+
 export interface JITRequestContext {
   route: string;
   phase: LifecyclePhase;
@@ -154,6 +223,15 @@ export interface JITRequestContext {
   softDriftDetected?: boolean;
   engineUsed?: 'typesafe' | 'needle';
   headers?: Record<string, string | string[] | undefined>;
+  tenant?: TenantDefinition;
+  upstreamFetch?: <T = any>(targetUrl: string, options?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: any;
+    secretRef?: string;
+    cacheTtlSeconds?: number;
+    timeoutMs?: number;
+  }) => Promise<T>;
 }
 
 export interface JITExecutionResult<T = any> {

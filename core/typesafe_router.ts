@@ -1,5 +1,8 @@
 import { NeedleClient, NeedleClientConfig } from './needle_client.js';
 import { TypeSafeClient } from './typesafe_client.js';
+import { UpstreamClient } from './upstream_client.js';
+import { RateLimiter } from './rate_limiter.js';
+import { TenantStore } from './tenant_store.js';
 import {
   JITRequestContext,
   JevChoiceAnswer,
@@ -17,6 +20,9 @@ export interface TypeSafeRouterOptions {
   forceNeedle?: boolean;
   securityThreshold?: number; // Noul score above this is rejected (default 0.8)
   confidenceThreshold?: number; // Choice confidence below this triggers warning (default 0.7)
+  upstreamClient?: UpstreamClient;
+  rateLimiter?: RateLimiter;
+  tenantStore?: TenantStore;
 }
 
 export class TypeSafeRouter {
@@ -27,6 +33,9 @@ export class TypeSafeRouter {
   private routes: Map<string, RouteDefinition> = new Map();
   private securityThreshold: number;
   private confidenceThreshold: number;
+  private upstreamClient?: UpstreamClient;
+  private rateLimiter?: RateLimiter;
+  private tenantStore?: TenantStore;
 
   constructor(options?: TypeSafeRouterOptions) {
     this.client = options?.client || new TypeSafeClient();
@@ -35,6 +44,9 @@ export class TypeSafeRouter {
     this.forceNeedle = options?.forceNeedle ?? false;
     this.securityThreshold = options?.securityThreshold ?? 0.8;
     this.confidenceThreshold = options?.confidenceThreshold ?? 0.7;
+    this.upstreamClient = options?.upstreamClient;
+    this.rateLimiter = options?.rateLimiter;
+    this.tenantStore = options?.tenantStore;
   }
 
   /**
@@ -152,6 +164,7 @@ export class TypeSafeRouter {
 
       // Validate authentication before handler execution
       TypeSafeRouter.validateAuth(routeDef, headers);
+      this.enrichContextAndCheckLimits(context, routeDef, headers);
 
       const result = await routeDef.handler(needleRes.normalizedPayload, context);
 
@@ -251,6 +264,7 @@ export class TypeSafeRouter {
 
     // 7. Validate authentication before handler execution
     TypeSafeRouter.validateAuth(routeDef, headers);
+    this.enrichContextAndCheckLimits(context, routeDef, headers);
 
     // 8. Invoke handler
     const result = await routeDef.handler(normalizedPayload, context);
@@ -261,5 +275,55 @@ export class TypeSafeRouter {
       result,
       context,
     };
+  }
+
+  private enrichContextAndCheckLimits(
+    context: JITRequestContext,
+    routeDef: RouteDefinition,
+    headers?: Record<string, string | string[] | undefined>
+  ): void {
+    if (this.upstreamClient) {
+      context.upstreamFetch = (url, opts) => this.upstreamClient!.fetch(url, opts).then((r) => r.data);
+    }
+
+    if (this.tenantStore) {
+      const apiKey = this.extractApiKey(headers);
+      if (apiKey) {
+        const tenant = this.tenantStore.getTenantByApiKey(apiKey);
+        if (tenant) {
+          context.tenant = tenant;
+          if (!this.tenantStore.isRouteAllowed(tenant, routeDef.route)) {
+            throw new UnauthorizedError(`Forbidden: 您的帳號 (${tenant.name}) 無權存取端點 '${routeDef.route}'`);
+          }
+          if (this.rateLimiter && tenant.rateLimit) {
+            const check = this.rateLimiter.checkLimit(`tenant:${tenant.id}`, tenant.rateLimit);
+            if (!check.allowed) {
+              throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);
+            }
+          }
+        }
+      }
+    }
+
+    if (this.rateLimiter && routeDef.rateLimit) {
+      const ipOrId = (headers?.['x-forwarded-for'] as string) || (headers?.['x-real-ip'] as string) || 'client_direct';
+      const check = this.rateLimiter.checkLimit(`${routeDef.route}:${ipOrId}`, routeDef.rateLimit);
+      if (!check.allowed) {
+        throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);
+      }
+    }
+  }
+
+  private extractApiKey(headers?: Record<string, string | string[] | undefined>): string {
+    if (!headers) return '';
+    const authHeader = headers['authorization'] || headers['Authorization'];
+    const authStr = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+    if (authStr && authStr.startsWith('Bearer ')) {
+      return authStr.substring(7).trim();
+    }
+    const keyHeader = headers['x-api-key'] || headers['X-API-KEY'] || headers['x-apikey'];
+    const keyStr = Array.isArray(keyHeader) ? keyHeader[0] : keyHeader;
+    if (keyStr) return keyStr.trim();
+    return '';
   }
 }

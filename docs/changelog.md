@@ -4,6 +4,107 @@
 
 ---
 
+## 🚀 [v1.5.0] - 2026-09-24
+
+### 🌟 重大架構演進：Hugging Face Spaces 部署支援、Master 登入保護、Upstream 轉接安全、多租戶頻率限制與 LINE 多角色 Jev 重要度分流
+
+本版本專注於**企業級 API 分享中心 (Master Hub)** 的雲端落地與安全防護，實現無縫託管於 Hugging Face Spaces，並結合多租戶隔離與 AI Coding Agent 自主派工：
+
+---
+
+### 1. ☁️ Hugging Face Spaces 零成本託管與雲端環境自動偵測
+* **自動 Port 7860 綁定**：`run.sh` 與伺服器自動辨識 `SPACE_ID` / `SPACE_HOST`，免配置直接掛載 HF Spaces。
+* **HF Secrets 零洩漏架構**：`.gitignore` 嚴格排除 `.jit/upstream_secrets.*`、`.jit/apikeys.json`、`.jit/tenants.json`，第三方機密統一由 HF Secrets 透過 `UPSTREAM_<REF>` 注入並在前端自動遮罩。
+* **外網一鍵分享支援**：`run.sh --share` 支援 Cloudflare Tunnels / Localtunnel 快速穿透分享。
+
+---
+
+### 2. 🛡️ Master 管理者身分認證與暴力破解防禦
+* **常數時間安全對比**：採用 `crypto.timingSafeEqual` 阻擋時間差計時側信道攻擊。
+* **連續失敗鎖定**：若連續 5 次密碼錯誤，系統自動鎖定該來源 IP 15 分鐘，抵禦暴力字典攻擊。
+* **Express 守衛中介軟體**：規格修改、SHA-256 回滾、k6 壓測、工單核准與 Web Terminal 終端機全面受 `masterAuth.requireMaster` 嚴密保護。
+
+---
+
+### 3. 🌐 Upstream 第三方加值轉接與 SSRF 安全防禦
+* **Markdown 宣告式轉接**：支援在規格書宣告 `## Upstream` 與 `## Limits`，虛擬機直接注入 `ctx.upstreamFetch()`。
+* **SSRF 內網攻擊攔截**：全面阻擋 `localhost`, `127.0.0.1`, RFC1918 私有網段 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) 與雲端 Metadata IP (`169.254.169.254`)。
+* **記憶體快取 (TTL)**：預設 60 秒記憶體快取，重複查詢耗時 0ms，大幅降低第三方 API 調用配額與成本。
+
+---
+
+### 4. 👥 多租戶 API Key 與 Sliding-Window 429 速率限制
+* **租戶角色隔離**：支援 `master`, `pm`, `client`, `dev` 四種身分。
+* **路由授權白名單**：Client 僅能存取其 `allowedRoutes`，其餘端點回傳 403。
+* **精準速率限制**：滑動窗口演算法 (Sliding-Window)，超出配額時回傳 HTTP 429 與 `retryAfterSeconds`。
+
+---
+
+### 5. 📱 LINE 多角色協同、Jev 三維評定指標 (重要性/急迫性/危險性) 與 AI Agent 派工
+* **客戶端點隔離**：Client 在 LINE 僅能看到與查詢自己被授權的 API；PM 可提新需求並全域測試。
+* **Jev 三維評定指標 (Three-Metric Evaluation)**：
+  * **🌟 重要性 (Importance, 0–100 & HIGH/MED/LOW)**：業務價值、客戶影響範圍與角色加權（PM 80分、客戶 75分、核心關鍵字 +15分）。
+  * **⏰ 急迫性 (Urgency, 0–100 & CRITICAL/HIGH/MED/LOW)**：時效性與線上故障阻斷（500/Crash/阻斷 95分 CRITICAL、緊急/今天 85分 HIGH、延後 25分 LOW）。
+  * **⚠️ 危險性 (Risk / Breaking Hazard, 0–100 & HIGH/MED/LOW)**：破壞性變更衝擊（刪改欄位/型態變更 80~100分 HIGH、修改現有端點 25分 LOW、新增相容端點 10~20分 LOW）。
+* **智慧分流與處置建議 (Triage Advice Matrix)**：
+  * `DISCUSS_WEEKLY_MEETING` (週會討論)：危險性為 HIGH（破壞性變更），強制列入每週全體對齊例會評審，避免溜溜球效應與客戶端崩潰。
+  * `MASTER_DIRECT_HANDLE` (Master 立即處置)：急迫性為 CRITICAL（線上當機）或 HIGH 且低危險（小事自處），Master 當場一鍵批准並熱重載。
+  * `AI_AGENT_AUTONOMOUS` (交由 AI Agent 處理)：重要度明確且危險性受控，可直接指派 Claude Code / Codex / Gemini CLI 自動生成 Spec。
+  * `REJECT` (建議駁回/暫緩)：需求資訊不足 (`NEED_MORE_INFO`) 或重要性低且無急迫性。
+* **一鍵複製 AI Agent 指令**：可一鍵將結構化 Prompt（包含三維指標與處置建議）複製至剪貼簿，直接在終端交由 Claude Code / Codex / Gemini CLI 秒級實作！
+
+---
+
+## 🚀 [v1.4.0] - 2026-09-24
+
+### 🌟 重大架構演進：角色工作台、紅綠燈防溜溜球協同機制、LINE 控制中心與 TypeSafe Jev 審查樞紐
+
+本版本專注於提升前後端多角色團隊的**協同開發體驗**與**高並發溝通效率**，引入「角色工作台」、「紅綠燈防溜溜球協同協議」、「Master 角色與 LINE 需求工單樞紐」以及「基於 TypeSafe Jev 原語的結構化智慧決策」：
+
+---
+
+### 1. 👥 角色導向工作台 (Role-Based Workspaces)
+* **Client 端工作台**：專為前端/App/QA 設計，內建 Smart Mock / Digital Twin 零後端模式切換、Chaos 混沌流量生成器、跨語言 Client SDK 預覽與客戶端專用測試 Playground。
+* **Server 端工作台**：專為後端架構師設計，整合 Markdown API 即時編輯與熱重載、Phase 1~3 凍結/解凍控制、Grafana k6 壓力測試機、以及 SHA-256 快照版本管理與一鍵回滾。
+* **雙端協同總覽 (Overview)**：展示全域路由拓撲矩陣、即時觀測統計與全局協同燈號。
+
+---
+
+### 2. 🚦 紅綠燈協同機制與防溜溜球互斥鎖 (Traffic Light Anti-Yo-Yo Protocol)
+* **核心問題**：前後端並行開發時，常發生「前端在驗收，後端突然重構覆寫」或「雙方同時修改導致反覆拉扯（Yo-Yo Effect）」的溜溜球效應。
+* **架構升級**：
+  * 新增 [`core/coordination.ts`](../core/coordination.ts)（`TrafficLightManager`）。
+  * 動態三色燈號狀態機：
+    * 🟢 **GREEN (Ready / Synced)**：規格穩定同步，開放雙端自由發送與非破壞性擴充。
+    * 🟡 **YELLOW (Negotiating / Drift Evolving)**：檢測到漂移或正在樣本收斂中，提醒雙端注意。
+    * 🔴 **RED (Locked / Benchmarking / Active Testing)**：由特定角色持有獨佔操作鎖（具備 TTL 自動過期釋放防死鎖），保護壓測與驗收現場。
+
+---
+
+### 3. 📱 LINE 協同控制中心 & 需求工單看板 (`#TKT-xxxx`)
+* **Master-Centric API Hub 設計**：單一 Master 工程師（擁有 `run.sh` 電腦控制權）透過 JIT 引擎同時服務多位 Client / Server 協同者。
+* **已知 API 規格自動秒回 (Read-Only FAQs)**：協同者在 LINE 詢問規格（如「查詢 /api/users」），Bot 自動秒回參數型態與紅綠燈狀態，Master 完全零干擾。
+* **新需求自動收單立案**：協同者在 LINE 提出增修需求，Bot 自動建立工單 (`#TKT-xxxx`) 並排入審核看板。
+* **對話白名單權限管制 (Access Control)**：Master 可在 Web Studio 直接增刪授權 LINE 使用者，杜絕外部無效灌水。
+* **內嵌 LINE 互動模擬器 (Chat Simulator)**：免實體 Webhook 網址即可在 Web Studio 即時體驗 LINE 雙向對話、秒回與自動收單流程。
+
+---
+
+### 4. 🤖 TypeSafe Jev 結構化微決策審查核心 (Jev Reviewer)
+* **捨棄傳統自由對話式 LLM 幻覺**，全面採用 TypeSafe Jev 三大結構化原語：
+  * **`noul`（安全護欄）**：毫秒級過濾惡意 Prompt 注入或異常指令。
+  * **`choice`（確定性狀態機）**：強制限定決策結果（`APPROVE_AND_DRAFT_SPEC`, `MODIFY_EXISTING_ENDPOINT`, `NEED_MORE_INFO`, `HIGH_BREAKING_RISK`）。
+  * **`score`（破壞性風險評分）**：計算變更之「破壞性風險」與「相容性評分」(0.0 ~ 1.0)。
+* **Master 一鍵審閱**：Master 檢視指標卡後，點擊「✅ 批准並一鍵生成 Spec」，JIT 引擎自動將 Jev 起草之補丁寫入 `specs/` 並熱重載入引擎。
+
+---
+
+### 5. 🛡️ 伺服器熱重載與健全錯誤防禦
+* 升級 `run.sh` 為 `npx tsx watch docs/examples/ts_server.ts`，代碼修改自動熱重載。
+* 前端 `app.js` 引入 `safeApiRequest`，徹底根絕 `Unexpected token '<'` 404 HTML 解析異常。
+
+---
+
 ## 🚀 [v1.3.0] - 2026-09-23
 
 ### 🌟 重大架構演進：自適應漂移修復、多版本共存、快取持久化與二進位 Protobuf
@@ -94,8 +195,23 @@
 
 ---
 
+### 7. 🚦 雙端角色工作台與交通燈號防溜溜球協同機制 (Role Workbench & Traffic Light Protocol)
+* **核心問題**：客戶端與伺服端並行開發時，常因一方微調欄位觸發漂移，另一方同時調整規格，造成雙向競態震盪與無限追逐的「溜溜球效應 (Yo-Yo Effect)」。
+* **架構升級**：
+  * **TrafficLightManager（[`core/coordination.ts`](../core/coordination.ts)）**：
+    * 🟢 **綠燈 (SYNCED)**：規格已對齊收斂，雙端皆享有完全編輯與調用權限。
+    * 🟡 **黃燈 (NEGOTIATING)**：演進協商中，正在統計樣本或自適應中，提示雙端暫停大幅重構。
+    * 🔴 **紅燈 (LOCKED)**：互斥鎖定（Server 壓測中或 Client 錄製中），阻止單方突更，具備自動 TTL 超時保護避免死鎖。
+  * **角色切換工作台（Web Studio UI）**：
+    * **`👤 Client 工作台`**：零後端 Mock 開發、合成流量壓力注入（Valid / Fuzz / Chaos）、Client SDK 一鍵生成與客戶端互斥鎖。
+    * **`🖥️ Server 工作台`**：Markdown API 規格線上編修熱重載、Phase 3 固化鎖定、k6 壓測與版本發布回滾。
+    * **`🌐 雙端協同總覽`**：全域路由卡片即時呼吸燈號與雙端協商看板。
+  * **LINE Bot 整合架構規劃**：發布 [`docs/line_bot_architecture.md`](./line_bot_architecture.md)，規劃 `./run.sh` 零繁瑣設定自動建立 HTTPS 隧道並打通 LINE Bot 協同對話。
+
+---
+
 ### 🧪 驗證與測試覆蓋
-* 新增 9 組專屬測試套件：
+* 新增 10 組專屬測試套件：
   1. `test/multi_version_coexistence.test.ts`
   2. `test/auto_repair.test.ts`
   3. `test/strict_evolve_drift.test.ts`
@@ -105,7 +221,8 @@
   7. `test/mock_server.test.ts`
   8. `test/mock_client.test.ts`
   9. `test/proxy_recorder.test.ts`
-* 全套 21 個測試檔案（共 58 項測試）全數 100% 通過。
+  10. `test/traffic_light.test.ts`
+* 全套 22 個測試檔案（共 63 項測試）全數 100% 通過。
 
 ---
 

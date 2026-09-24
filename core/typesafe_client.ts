@@ -46,8 +46,11 @@ export class TypeSafeClient {
     return { type: 'noul', instructions };
   }
 
-  static score(levels: Record<string, string>): JevScoreQuestion {
-    return { type: 'score', levels };
+  static score(criteria: string[] | Record<string, string>): JevScoreQuestion {
+    if (Array.isArray(criteria)) {
+      return { type: 'score', criteria };
+    }
+    return { type: 'score', criteria: Object.values(criteria), levels: criteria };
   }
 
   async systemOne(req: {
