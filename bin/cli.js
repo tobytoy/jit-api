@@ -75,6 +75,7 @@ Commands:
   rollback <version>驗簽並秒級回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
   export <target>   導出部署包或規格 (pages: GitHub/Cloudflare Pages 離線包, openapi: Swagger JSON)
   scaffold <preset> 快速產生跨平台專案骨架 (line-liff, cloudflare, firebase, supabase)
+  audit             靜態審查 specs/ 中所有 Markdown 規格檔的資安隱患 (金鑰洩漏、SSRF、未授權端點等)
   init              在當前專案目錄建立 specs/ 規格目錄與範本
 
 Options:
@@ -307,6 +308,27 @@ if (command === 'scaffold') {
   console.log(`\n🎉 專案骨架已成功建立於: ${result.outDir}`);
   result.files.forEach((f) => console.log(`   + ${path.relative(process.cwd(), f)}`));
   console.log(`\n👉 請進入 ${result.outDir} 並參考 README.md 開始開發！\n`);
+  process.exit(0);
+}
+
+// Command: audit (Security Linter)
+if (command === 'audit' || command === 'lint-spec') {
+  let pluginsModule;
+  try {
+    pluginsModule = await import('../dist/plugins/index.js');
+  } catch {
+    pluginsModule = await import('../plugins/index.js');
+  }
+
+  const { SpecSecurityLinter } = pluginsModule;
+  const linter = new SpecSecurityLinter();
+  console.log(`🔍 正在靜態稽核 Markdown 規格目錄: ${specsDir} ...\n`);
+  const report = await linter.auditDirectory(specsDir);
+  console.log(linter.formatReport(report));
+
+  if (!report.passed) {
+    process.exit(1);
+  }
   process.exit(0);
 }
 

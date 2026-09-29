@@ -4,6 +4,64 @@
 
 ---
 
+## 🚀 [v1.4.2] - 2026-09-29
+
+### 🌟 重大架構演進：外掛生態系全方位擴充、Google Sheets 試算表資料庫、靜態資安稽核 (SAST) 與 Agent Master Guide
+
+本版本專注於**多元低代碼資料庫支援、全通路即時通訊告警、企業級靜態資安防護與 AI Agent 專案指南**，大幅提升開發生態系的靈活性與安全性：
+
+---
+
+### 1. 📊 試算表與低代碼資料庫 (No-Code CMS & Serverless Stores)
+* **Google Sheets 試算表外掛** ([`plugins/store_googlesheets.ts`](../plugins/store_googlesheets.ts))：
+  * 支援 Google Apps Script (GAS) Web App（0 GCP SDK 設定）與 Google Sheets API v4。
+  * 具備配額保護記憶體快取（Memory Fallback & TTL Cache）。
+  * 內建 `readRows()` 表格物件化解析，直接將試算表當作 API 資料庫與 Headless CMS。
+* **Notion Database 外掛** ([`plugins/store_notion.ts`](../plugins/store_notion.ts))：
+  * 將 Notion 資料庫頁面與屬性即時轉換為 JIT Key-Value 儲存。
+* **Upstash Serverless Redis 外掛** ([`plugins/store_upstash.ts`](../plugins/store_upstash.ts))：
+  * 純 `fetch` HTTP REST API 實作，零連線池負擔，相容 Cloudflare Workers 與 Vercel Edge。
+
+---
+
+### 2. 📢 通訊與宣告式推播頻道擴充 (Multi-Channel Dispatch)
+* **Discord 外掛** ([`plugins/channel_discord.ts`](../plugins/channel_discord.ts))：支援 Webhook 與 Rich Embeds 視覺化卡片。
+* **Telegram 外掛** ([`plugins/channel_telegram.ts`](../plugins/channel_telegram.ts))：支援 Telegram Bot API (`sendMessage`) 推播。
+* **Slack 外掛** ([`plugins/channel_slack.ts`](../plugins/channel_slack.ts))：支援 Incoming Webhook 與 Block Kit 結構化排版。
+* **JIT Engine 宣告式整合**：[`core/jit_engine.ts`](../core/jit_engine.ts) 原生支援 `Channel: discord`、`Channel: telegram`、`Channel: slack` 自動派發。
+
+---
+
+### 3. 🛡️ 靜態資安稽核 (SAST) 與現代身分認證守門
+* **靜態資安掃描外掛與 CLI** ([`plugins/guard_spec_linter.ts`](../plugins/guard_spec_linter.ts))：
+  * 內建 6 大資安規則庫（`SEC-001` 到 `SEC-006`）：即時攔截明文金鑰（OpenAI/AWS/JWT/Stripe）、SSRF 內網攻擊目標、未授權敏感路由、DoS 缺乏限流、真實個資外洩與危險系統調用。
+  * 新增 CLI 指令：`npx jit-api audit`（或 `lint-spec`），產出彩色終端審計報告。
+  * 支援引擎啟動守門（`strictMode: true` 阻斷高危規格上線）。
+* **AI 安全護欄與個資脫敏** ([`plugins/guard_safety.ts`](../plugins/guard_safety.ts))：
+  * Prompt Injection 越獄偵測。
+  * 台灣在地化 PII 脫敏（手機號碼、身分證字號、信用卡、Email 自動遮罩）。
+* **現代 Auth 外掛**：
+  * **Firebase Auth** ([`plugins/auth_firebase.ts`](../plugins/auth_firebase.ts))：Firebase ID Token 驗證。
+  * **Clerk Auth** ([`plugins/auth_clerk.ts`](../plugins/auth_clerk.ts))：Clerk Session Token 驗證。
+* **Webhook 錄製與重放除錯工具** ([`plugins/tool_webhook_replay.ts`](../plugins/tool_webhook_replay.ts))：
+  * 記憶體循環紀錄最近 50 筆傳入 Webhook，提供一鍵重發（Replay）除錯能力。
+
+---
+
+### 4. 🤖 AI Agent 專屬指南與歷代演進對照 (Agent Master Guide)
+* 於專案目錄新增 [`.agent/skills/jit-protocol/SKILL.md`](../.agent/skills/jit-protocol/SKILL.md) 與 [`.agents/skills/jit-protocol/SKILL.md`](../.agents/skills/jit-protocol/SKILL.md)，全面同步根目錄 [`SKILL.md`](../SKILL.md)。
+* 收錄自 `v1.1.1` 至 `v1.4.2` 歷代打 Tag 版本演進對照表與完整規格手冊。
+
+---
+
+### 🧪 測試覆蓋
+* 新增 2 組全功能測試套件：
+  1. `test/plugins_extended.test.ts` (20 項測試)
+  2. `test/security_linter.test.ts` (8 項測試)
+* 全專案共 30 個測試檔案、134 項測試全數 100% 通過（0 Failures）。
+
+---
+
 ## 🚀 [v1.4.1] - 2026-09-29
 
 ### 🌟 重大架構演進：外掛中樞 (Plugin Hub)、跨平台部署轉接器與 LINE Mini App (LIFF) 腳手架

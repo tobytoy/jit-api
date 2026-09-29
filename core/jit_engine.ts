@@ -28,6 +28,9 @@ import { TenantStore } from './tenant_store.js';
 import { UnauthorizedError } from './types.js';
 import { PluginManager, JITPlugin } from './plugin.js';
 import { sendLinePush } from '../plugins/channel_line.js';
+import { sendDiscordMessage } from '../plugins/channel_discord.js';
+import { sendTelegramMessage } from '../plugins/channel_telegram.js';
+import { sendSlackMessage } from '../plugins/channel_slack.js';
 
 export interface JITEngineOptions {
   client?: TypeSafeClient;
@@ -483,6 +486,20 @@ export class JITEngine {
       }
       const success = await sendLinePush(target, [{ type: 'text', text: messageText }], token);
       return { dispatched: success, channel: 'line', target };
+    } else if (channel === 'discord') {
+      const success = await sendDiscordMessage(target, { content: messageText, username: 'JIT Bot' });
+      return { dispatched: success, channel: 'discord', target };
+    } else if (channel === 'telegram') {
+      const token = notify.token || (notify.tokenEnv ? process.env[notify.tokenEnv] : process.env.TELEGRAM_BOT_TOKEN);
+      if (!token) {
+        console.warn(`[DeclarativeNotify] Missing Telegram Bot Token for route '${routeDef.route}'.`);
+        return { dispatched: false, channel: 'telegram', target, error: 'Missing Telegram token' };
+      }
+      const success = await sendTelegramMessage(target, messageText, token);
+      return { dispatched: success, channel: 'telegram', target };
+    } else if (channel === 'slack') {
+      const success = await sendSlackMessage(target, { text: messageText });
+      return { dispatched: success, channel: 'slack', target };
     } else if (channel === 'webhook') {
       try {
         const res = await fetch(target, {

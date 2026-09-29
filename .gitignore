@@ -254,8 +254,10 @@ Thumbs.db
 *.swo
 
 # Agents Customizations & Local Secrets
-.agents/
-.agent/
+.agents/*
+!.agents/skills
+.agent/*
+!.agent/skills
 _agents/
 _agent/
 *.token

@@ -31,7 +31,10 @@ npx jit-api dev
 # 3. 啟動生產模式 (高效純 API Gateway、安全防護、僅加載 Stage: prod，Port 3000)
 npx jit-api start
 
-# 4. 發布規格快照版本 / 線上快速回滾降版
+# 4. 靜態資安掃描 (檢測 Markdown 金鑰洩漏、SSRF、未授權敏感端點)
+npx jit-api audit
+
+# 5. 發布規格快照版本 / 線上快速回滾降版
 npx jit-api release 1.0.0 "初次生產穩定發布"
 npx jit-api rollback 1.0.0
 ```
