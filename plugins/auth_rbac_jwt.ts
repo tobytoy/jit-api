@@ -167,7 +167,7 @@ export function createAdvancedAuthPlugin(options: AdvancedAuthPluginOptions = {}
 
   return {
     name: 'auth-rbac-jwt',
-    version: '1.4.2',
+    version: '1.4.3',
     description: 'Cryptographic JWT verification (HS256/RS256), JTI token blacklist, and action-level RBAC',
     blacklist,
     rbac,

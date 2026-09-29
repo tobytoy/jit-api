@@ -227,7 +227,7 @@ export function createOpenTelemetryPlugin(options?: OpenTelemetryPluginOptions):
 
   return {
     name: 'observability-opentelemetry',
-    version: '1.4.2',
+    version: '1.4.3',
     description: 'W3C TraceContext distributed tracing plugin with spans for route matching, logic, and upstream proxy',
     tracer,
 

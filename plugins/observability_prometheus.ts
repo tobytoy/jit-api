@@ -243,7 +243,7 @@ export function createPrometheusPlugin(options?: PrometheusPluginOptions): JITPl
 
   return {
     name: 'observability-prometheus',
-    version: '1.4.2',
+    version: '1.4.3',
     description: 'Prometheus metrics exporter with P50/P90/P99 latency histograms and /metrics endpoint',
     registry,
     getMetricsAsText: () => registry.getMetricsAsText(),
