@@ -6,6 +6,7 @@
  */
 
 import { JITPlugin, JITRouteEvent } from '../core/plugin.js';
+import { UpstreamClient } from '../core/upstream_client.js';
 
 export interface SlackBlock {
   type: string;
@@ -37,6 +38,7 @@ export async function sendSlackMessage(
 ): Promise<boolean> {
   const url = webhookUrl || process.env.SLACK_WEBHOOK_URL;
   if (!url) return false;
+  if (!UpstreamClient.isSafeUrl(url).safe) return false;
 
   const body = typeof payload === 'string' ? { text: payload } : payload;
 

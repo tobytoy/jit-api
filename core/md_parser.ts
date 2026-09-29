@@ -421,7 +421,8 @@ export class MDParser {
     if (spec.logicCode) {
       const fileName = spec.filename || `${spec.route}.api.md`;
       const startLine = spec.logicStartLine || 1;
-      const wrappedCode = `(async () => {\n${spec.logicCode}\n})()`;
+      // Wrap code in strict IIFE to keep `this` undefined and prevent top-level scope escape
+      const wrappedCode = `(async function() {\n  "use strict";\n${spec.logicCode}\n})()`;
 
       handler = async (payload: any, ctx: JITRequestContext) => {
         // Deep clone payload to prevent prototype pollution
@@ -441,38 +442,10 @@ export class MDParser {
           engineUsed: ctx.engineUsed,
           headers: ctx.headers ? { ...ctx.headers } : undefined,
           tenant: ctx.tenant,
-          upstreamFetch: ctx.upstreamFetch,
         };
 
-        const sandbox: Record<string, any> = {
-          payload: safePayload,
-          ctx: safeCtx,
-          upstreamFetch: ctx.upstreamFetch,
-          console: {
-            log: (...args: any[]) => console.log(`[Sandbox:${spec.route}]`, ...args),
-            warn: (...args: any[]) => console.warn(`[Sandbox:${spec.route}]`, ...args),
-            error: (...args: any[]) => console.error(`[Sandbox:${spec.route}]`, ...args),
-          },
-          JSON,
-          Math,
-          Date,
-          String,
-          Number,
-          Boolean,
-          Array,
-          Object,
-          RegExp,
-          parseInt,
-          parseFloat,
-          encodeURIComponent,
-          decodeURIComponent,
-          // Explicitly blocked critical globals
-          process: undefined,
-          require: undefined,
-          import: undefined,
-          global: undefined,
-          globalThis: undefined,
-        };
+        // Create root sandbox with null prototype to eliminate host Object.prototype inheritance
+        const sandbox: Record<string, any> = Object.create(null);
 
         const context = vm.createContext(sandbox, {
           codeGeneration: {
@@ -480,6 +453,41 @@ export class MDParser {
             wasm: false,
           },
         });
+
+        // Deserialize safePayload and safeCtx into the context's internal realm
+        // so their prototypes belong to the VM realm rather than the host realm
+        try {
+          const realmJsonParse = vm.runInContext('JSON.parse', context);
+          sandbox.payload = realmJsonParse(JSON.stringify(safePayload));
+          sandbox.ctx = realmJsonParse(JSON.stringify(safeCtx));
+        } catch {
+          sandbox.payload = safePayload;
+          sandbox.ctx = safeCtx;
+        }
+
+        // Host console with stripped prototype
+        const safeConsole = Object.setPrototypeOf({
+          log: (...args: any[]) => console.log(`[Sandbox:${spec.route}]`, ...args),
+          warn: (...args: any[]) => console.warn(`[Sandbox:${spec.route}]`, ...args),
+          error: (...args: any[]) => console.error(`[Sandbox:${spec.route}]`, ...args),
+        }, null);
+        sandbox.console = safeConsole;
+
+        // Upstream fetch bridge with stripped prototype
+        if (ctx.upstreamFetch) {
+          const safeFetch = async (...args: any[]) => {
+            return await ctx.upstreamFetch!(...(args as [string, any]));
+          };
+          Object.setPrototypeOf(safeFetch, null);
+          sandbox.upstreamFetch = safeFetch;
+        }
+
+        // Explicitly block dangerous globals
+        sandbox.process = undefined;
+        sandbox.require = undefined;
+        sandbox.import = undefined;
+        sandbox.global = undefined;
+        sandbox.globalThis = undefined;
 
         try {
           const script = new vm.Script(wrappedCode, {

@@ -27,3 +27,10 @@ export * from './channel_slack.js';
 export * from './guard_safety.js';
 export * from './guard_spec_linter.js';
 export * from './tool_webhook_replay.js';
+
+// Observability & Tracing Plugins
+export * from './observability_prometheus.js';
+export * from './observability_opentelemetry.js';
+
+// Advanced Auth & Fine-Grained RBAC Plugins
+export * from './auth_rbac_jwt.js';

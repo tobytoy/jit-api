@@ -18,6 +18,9 @@ export interface JITRouteEvent {
   success: boolean;
   timestamp: number;
   statusCode?: number;
+  engineUsed?: string;
+  aiLatencyMs?: number;
+  error?: string;
 }
 
 export interface JITStorageAdapter {
@@ -34,6 +37,19 @@ export interface JITPluginContext {
   storage?: JITStorageAdapter;
 }
 
+export interface JITBeforeRouteContext {
+  route: string;
+  payload: any;
+  headers?: Record<string, any>;
+}
+
+export interface JITBeforeRouteResult {
+  proceed: boolean;
+  error?: string;
+  statusCode?: number;
+  modifiedPayload?: any;
+}
+
 export interface JITPlugin {
   name: string;
   version?: string;
@@ -45,6 +61,9 @@ export interface JITPlugin {
     req?: any
   ) => Promise<AuthValidationResult | null>;
   storageAdapter?: JITStorageAdapter;
+  beforeRouteExecution?: (
+    context: JITBeforeRouteContext
+  ) => Promise<JITBeforeRouteResult | void> | JITBeforeRouteResult | void;
   onRouteExecuted?: (event: JITRouteEvent) => void | Promise<void>;
 }
 
@@ -184,6 +203,41 @@ export class PluginManager {
       }
     }
     return null;
+  }
+
+  /**
+   * Execute pre-route execution hooks across plugins (Firewall / Sanitization / Pre-validation)
+   */
+  public async beforeRouteExecution(
+    context: JITBeforeRouteContext
+  ): Promise<JITBeforeRouteResult> {
+    let currentPayload = context.payload;
+    for (const plugin of this.plugins.values()) {
+      if (plugin.beforeRouteExecution) {
+        try {
+          const result = await plugin.beforeRouteExecution({ ...context, payload: currentPayload });
+          if (result) {
+            if (result.proceed === false) {
+              return {
+                proceed: false,
+                error: result.error || `Request blocked by plugin '${plugin.name}'`,
+                statusCode: result.statusCode || 403,
+              };
+            }
+            if (result.modifiedPayload !== undefined) {
+              currentPayload = result.modifiedPayload;
+            }
+          }
+        } catch (err: any) {
+          return {
+            proceed: false,
+            error: `Plugin '${plugin.name}' pre-execution error: ${err.message}`,
+            statusCode: 500,
+          };
+        }
+      }
+    }
+    return { proceed: true, modifiedPayload: currentPayload };
   }
 
   /**

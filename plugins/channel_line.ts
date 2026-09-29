@@ -21,12 +21,19 @@ export function verifyLineSignature(
   signature: string,
   channelSecret: string
 ): boolean {
-  if (!signature || !channelSecret) return false;
-  const hash = crypto
-    .createHmac('sha256', channelSecret)
-    .update(rawBody)
-    .digest('base64');
-  return hash === signature;
+  if (!signature || !channelSecret || typeof rawBody !== 'string') return false;
+  try {
+    const hash = crypto
+      .createHmac('sha256', channelSecret)
+      .update(rawBody)
+      .digest('base64');
+    const hashBuf = Buffer.from(hash, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    if (hashBuf.length !== sigBuf.length) return false;
+    return crypto.timingSafeEqual(hashBuf, sigBuf);
+  } catch {
+    return false;
+  }
 }
 
 /**

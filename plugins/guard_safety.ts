@@ -102,5 +102,39 @@ export function createSafetyGuardPlugin(options: { blockInjections?: boolean; au
     name: 'guard-safety',
     version: '1.4.1',
     description: 'AI Safety Guardrail & PII Masking Plugin for JIT API',
+    async beforeRouteExecution(context) {
+      if (blockInjections && context.payload) {
+        const checkStr = (val: any): boolean => {
+          if (typeof val === 'string') {
+            return detectPromptInjection(val).isSuspicious;
+          }
+          if (Array.isArray(val)) {
+            return val.some(checkStr);
+          }
+          if (val && typeof val === 'object') {
+            return Object.values(val).some(checkStr);
+          }
+          return false;
+        };
+
+        if (checkStr(context.payload)) {
+          return {
+            proceed: false,
+            error: 'AI Safety Guardrail: Prompt Injection or Jailbreak pattern detected.',
+            statusCode: 400,
+          };
+        }
+      }
+
+      let modifiedPayload = context.payload;
+      if (autoSanitize && context.payload) {
+        modifiedPayload = sanitizePII(context.payload);
+      }
+
+      return {
+        proceed: true,
+        modifiedPayload,
+      };
+    },
   };
 }

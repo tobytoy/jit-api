@@ -4,6 +4,77 @@
 
 ---
 
+## 🚀 [v1.4.3] - 2026-09-29
+
+### 🌟 重大硬化：企業級可觀測性 (Prometheus / OpenTelemetry)、細粒度 RBAC 鑑權、Node.js VM 沙盒深度硬化與 RCE 防禦
+
+本版本正面解決現代微服務生產環境（Production-Ready）在**可觀測性盲區、鑑權陽春無狀態、以及動態腳本沙盒逃逸**等核心挑戰：
+
+---
+
+### 1. 📈 企業級可觀測性 (Observability & Distributed Tracing)
+* **Prometheus 指標外掛** ([`plugins/observability_prometheus.ts`](../plugins/observability_prometheus.ts))：
+  * 提供標準 OpenMetrics / Prometheus 0.0.4 格式文字匯出。
+  * 精準統計 HTTP 請求延遲分位數（**P50、P90、P99**）、延遲直方圖桶位（Histogram Buckets）、AI 推理耗時直方圖、Phase 3 結晶路由儀表（Gauges）與漂移次數計數器。
+  * 內建 `createMetricsHandler()`，支援 Express、ConnectRPC 與原生 Node.js HTTP 伺服器一鍵掛載 `/metrics` 端點。
+* **OpenTelemetry 分散式追蹤外掛** ([`plugins/observability_opentelemetry.ts`](../plugins/observability_opentelemetry.ts))：
+  * 完整遵循 **W3C TraceContext** 規範（解析與注入 `traceparent: 00-${traceId}-${spanId}-01`）。
+  * 建立全生命週期層級式 Spans：`jit.request`（根請求）、`jit.route`（路由分類）、`jit.logic_execution`（沙盒邏輯）、`jit.upstream_fetch`（上游代理）。
+  * 支援 `InMemorySpanExporter`（單元測試與除錯）、`ConsoleSpanExporter` 與自訂 OTLP 匯出器。
+
+---
+
+### 2. 🔐 進階鑑權、JTI 黑名單與細粒度 RBAC
+* **進階驗證與權限外掛** ([`plugins/auth_rbac_jwt.ts`](../plugins/auth_rbac_jwt.ts))：
+  * **硬核密碼學驗簽**：支援 **HS256 (HMAC-SHA256)** 與 **RS256 (RSA-SHA256)** 簽名校驗，採用 `crypto.timingSafeEqual` 常數時間比對防止時序攻擊（Timing Attacks）。
+  * **Token 撤銷與 JTI 黑名單**：支援即時撤銷 Token（內建記憶體 TTL 自動清理過期項目，並提供可插拔 `BlacklistStore` 對接 Redis）。
+  * **Action 級別細粒度 RBAC**：超越粗粒度角色，支援細微操作權限與萬用字元（如 `orders:*`、`billing:refund`、`*:read`），並支援角色權限矩陣（Role-to-Permission Matrix）。
+  * 內建 `generateSignedJwt` 工具，方便快速簽發測試與開發用 Token。
+
+---
+
+### 3. 🛡️ Node.js VM 沙盒硬化與反 RCE 防禦 (Sandbox Hardening)
+* **執行期沙盒原型隔離** ([`core/md_parser.ts`](../core/md_parser.ts))：
+  * 沙盒根物件採用 `Object.create(null)`，徹底切斷對宿主主機 `Object.prototype` 的繼承。
+  * 傳入的 `payload` 與 `ctx` 於 VM 內部領域（Realm）反序列化，阻斷攻擊者利用物件原型向上攀爬至外部主機的 `Function` 建構子。
+  * 宿主 `console` 與 `upstreamFetch` 均做原型剝離（`Object.setPrototypeOf(fn, null)`）。
+  * 以嚴格模式 IIFE 包覆執行腳本，確保最頂層 `this` 永遠為 `undefined`。
+  * 鎖定 `codeGeneration: { strings: false, wasm: false }`，徹底防死 `new Function()` 與 `eval()` 字串代碼生成。
+* **靜態 SAST Linter 規則升級** ([`plugins/guard_spec_linter.ts`](../plugins/guard_spec_linter.ts))：
+  * 升級 `SEC-006`：引進混淆字串還原比對，成功攔截刻意字串拆解拼接（如 `'child_' + 'process'`、`'con' + 'structor'`）。
+  * 攔截原型鏈存取（`__proto__`、`constructor`、`globalThis`）與動態編碼解碼（`atob`、`String.fromCharCode`）。
+
+---
+
+### 4. 🔒 密碼學合約防篡改與 Redis 快取防投毒 (Anti-Poisoning & Tamper-Proofing)
+* **`SchemaStore` HMAC-SHA256 簽名校驗** ([`core/schema_store.ts`](../core/schema_store.ts))：
+  * 儲存凍結合約快照時自動以密鑰計算 `HMAC-SHA256` 簽章與簽名時間戳。
+  * 載入時進行常數時間校驗（`timingSafeEqual`），一旦偵測到合約遭惡意修改（如移除限制、竄改路由、注入型態），立即拉響警報並拒絕載入，**徹底封死「全集群合約中毒」攻擊路徑**。
+  * 支援 `strictSignature: true` 生產環境嚴格強制驗簽模式。
+* **`SignedStorageAdapter` 快取防投毒包裝器** ([`core/signed_storage.ts`](../core/signed_storage.ts))：
+  * 可無縫包裹任意分散式儲存（Upstash Redis, AWS ElastiCache, Firestore 等）。
+  * 自動為寫入的 Key-Value 加上 HMAC 數位簽章信封（Signed Envelope），讀取時若有篡改直接阻斷，保證跨 Pod 共享資料絕對可信。
+
+---
+
+### 5. 🛡️ 外掛資安與執行期守門優化 (Plugins Security Hardening & Active Guardrails)
+* **LINE Webhook 常數時間驗簽** ([`plugins/channel_line.ts`](../plugins/channel_line.ts))：
+  * `verifyLineSignature` 全面升級採用 `crypto.timingSafeEqual` 進行常數時間比對，杜絕 HMAC 比對時序側信道攻擊（Timing Attacks）。
+* **Slack / Discord Webhook SSRF 防禦** ([`plugins/channel_slack.ts`](../plugins/channel_slack.ts), [`plugins/channel_discord.ts`](../plugins/channel_discord.ts))：
+  * 發送 Webhook 前呼叫 `UpstreamClient.isSafeUrl(url)` 檢查，全面封鎖對本機 Loopback、內部私有網段及雲端 Metadata（`169.254.169.254`）的非預期存取。
+* **Clerk / Firebase 生產環境防偽冒** ([`plugins/auth_clerk.ts`](../plugins/auth_clerk.ts), [`plugins/auth_firebase.ts`](../plugins/auth_firebase.ts))：
+  * `allowTestTokens` 改為在 `NODE_ENV === 'production'` 預設強制禁用，杜絕攻擊者藉由 `test_clerk_*` 或 `test_firebase_*` 繞過正式環境身分認證。
+* **Supabase JWT 密碼學 HS256 驗簽** ([`plugins/auth_supabase.ts`](../plugins/auth_supabase.ts))：
+  * 配置 `jwtSecret` 時進行常數時間 HMAC-SHA256 校驗，防止偽造權杖（Token Forgery）與未授權角色越權存取。
+* **主動式防護網與生命週期攔截** ([`core/plugin.ts`](../core/plugin.ts), [`plugins/guard_safety.ts`](../plugins/guard_safety.ts))：
+  * `core/plugin.ts` 新增 `beforeRouteExecution` 生命週期攔截器，`plugins/guard_safety.ts` 升級為主動式 WAF，在請求執行前主動阻斷 Prompt Injection / Jailbreak 攻擊，並自動脫敏敏感個資（PII）。
+* **Upstash Redis 一鍵防投毒整合** ([`plugins/store_upstash.ts`](../plugins/store_upstash.ts))：
+  * `createUpstashRedisPlugin` 支援 `signingSecret`，直接內建 `SignedStorageAdapter` 數位信封校驗。
+* **X-Forwarded-For 多重 IP 安全解析** ([`core/jit_engine.ts`](../core/jit_engine.ts), [`core/typesafe_router.ts`](../core/typesafe_router.ts))：
+  * 安全切割並提取最外層客戶端 IP，防止偽造逗點分隔 IP 串列繞過 Rate Limiter。
+
+---
+
 ## 🚀 [v1.4.2] - 2026-09-29
 
 ### 🌟 重大架構演進：外掛生態系全方位擴充、Google Sheets 試算表資料庫、靜態資安稽核 (SAST) 與 Agent Master Guide

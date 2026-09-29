@@ -163,16 +163,20 @@ export class UpstreamClient {
   }
 
   public assertSafeUrl(rawUrl: string): void {
-    const res = this.isSafeUrl(rawUrl);
+    const res = UpstreamClient.isSafeUrl(rawUrl);
     if (!res.safe) {
       throw new Error(`SSRF protection: ${res.reason}`);
     }
   }
 
   /**
-   * SSRF Protection Validator
+   * SSRF Protection Validator (Static & Instance helper)
    */
   public isSafeUrl(rawUrl: string): { safe: boolean; reason?: string } {
+    return UpstreamClient.isSafeUrl(rawUrl);
+  }
+
+  public static isSafeUrl(rawUrl: string): { safe: boolean; reason?: string } {
     try {
       const parsed = new url.URL(rawUrl);
 
@@ -181,22 +185,37 @@ export class UpstreamClient {
         return { safe: false, reason: `不允許的協定: ${parsed.protocol}，僅支援 http/https` };
       }
 
-      const hostname = parsed.hostname.toLowerCase();
+      const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
-      // Check loopback / localhost
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
-        return { safe: false, reason: `禁止存取本地主機 (Loopback): ${hostname}` };
+      // Check loopback / localhost / internal domains
+      if (
+        hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname.endsWith('.local') ||
+        hostname.endsWith('.internal') ||
+        hostname.endsWith('.lan') ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0'
+      ) {
+        return { safe: false, reason: `禁止存取本地主機或內部網域: ${hostname}` };
       }
 
-      // Check IPv4 private ranges
-      // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
+      // Check IPv6 Link-Local and Unique Local (fc00::/7, fe80::/10)
+      if (hostname.startsWith('fe80:') || hostname.startsWith('fc00:') || hostname.startsWith('fd00:')) {
+        return { safe: false, reason: `禁止存取 IPv6 內部私有或 Link-Local IP: ${hostname}` };
+      }
+
+      // Check IPv4 private and reserved ranges
       const ipv4Match = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
       if (ipv4Match) {
         const [_, o1, o2] = ipv4Match.map(Number);
+        if (o1 === 127) return { safe: false, reason: '禁止存取本機 Loopback 網段 (127.0.0.0/8)' };
+        if (o1 === 0) return { safe: false, reason: '禁止存取保留網段 (0.0.0.0/8)' };
         if (o1 === 10) return { safe: false, reason: '禁止存取內部私有 IP (10.0.0.0/8)' };
         if (o1 === 172 && o2 >= 16 && o2 <= 31) return { safe: false, reason: '禁止存取內部私有 IP (172.16.0.0/12)' };
         if (o1 === 192 && o2 === 168) return { safe: false, reason: '禁止存取內部私有 IP (192.168.0.0/16)' };
         if (o1 === 169 && o2 === 254) return { safe: false, reason: '禁止存取雲端 Metadata IP (169.254.0.0/16)' };
+        if (o1 === 100 && o2 >= 64 && o2 <= 127) return { safe: false, reason: '禁止存取電信級 CGNAT 私有 IP (100.64.0.0/10)' };
       }
 
       return { safe: true };

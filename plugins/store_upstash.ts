@@ -6,6 +6,7 @@
  */
 
 import { JITStorageAdapter, MemoryStorageAdapter, JITPlugin } from '../core/plugin.js';
+import { SignedStorageAdapter } from '../core/signed_storage.js';
 
 export interface UpstashRedisOptions {
   /**
@@ -22,6 +23,11 @@ export interface UpstashRedisOptions {
    * Key prefix (defaults to 'jit:')
    */
   keyPrefix?: string;
+
+  /**
+   * HMAC-SHA256 Signing secret to protect cached schemas & entries against poisoning
+   */
+  signingSecret?: string;
 }
 
 export class UpstashRedisStorageAdapter implements JITStorageAdapter {
@@ -121,10 +127,16 @@ export class UpstashRedisStorageAdapter implements JITStorageAdapter {
  * Factory for Upstash Serverless Redis Plugin
  */
 export function createUpstashRedisPlugin(options: UpstashRedisOptions = {}): JITPlugin {
+  const baseAdapter = new UpstashRedisStorageAdapter(options);
+  const secret = options.signingSecret || process.env.JIT_STORAGE_SIGNING_SECRET;
+  const storageAdapter = secret
+    ? new SignedStorageAdapter(baseAdapter, { secretKey: secret })
+    : baseAdapter;
+
   return {
     name: 'store-upstash-redis',
     version: '1.4.1',
     description: 'Upstash Serverless Redis REST Storage Plugin for JIT API',
-    storageAdapter: new UpstashRedisStorageAdapter(options),
+    storageAdapter,
   };
 }

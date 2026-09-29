@@ -37,7 +37,7 @@ export class ClerkAuthValidator {
 
   constructor(options: ClerkAuthOptions = {}) {
     this.secretKey = options.secretKey || process.env.CLERK_SECRET_KEY;
-    this.allowTestTokens = options.allowTestTokens ?? true;
+    this.allowTestTokens = options.allowTestTokens ?? (process.env.NODE_ENV !== 'production');
   }
 
   async validate(

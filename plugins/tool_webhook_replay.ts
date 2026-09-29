@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { JITPlugin } from '../core/plugin.js';
+import { UpstreamClient } from '../core/upstream_client.js';
 
 export interface WebhookRecord {
   id: string;
@@ -22,9 +23,18 @@ export interface WebhookRecord {
 export class WebhookRecorder {
   private records: WebhookRecord[] = [];
   private maxRecords: number;
+  private upstreamClient: UpstreamClient;
+  private allowLocalhost: boolean;
 
-  constructor(maxRecords = 50) {
-    this.maxRecords = maxRecords;
+  constructor(options: number | { maxRecords?: number; allowLocalhost?: boolean } = 50) {
+    if (typeof options === 'number') {
+      this.maxRecords = options;
+      this.allowLocalhost = true;
+    } else {
+      this.maxRecords = options.maxRecords ?? 50;
+      this.allowLocalhost = options.allowLocalhost ?? true;
+    }
+    this.upstreamClient = new UpstreamClient();
   }
 
   /**
@@ -67,15 +77,39 @@ export class WebhookRecorder {
   }
 
   /**
-   * Replay a webhook record to a target endpoint
+   * Replay a webhook record to a target endpoint (with SSRF protection)
    */
   public async replay(
     id: string,
     targetUrl: string
   ): Promise<{ status: number; ok: boolean; responseBody: any }> {
+    // Cloud metadata protection is strictly enforced regardless of allowLocalhost
+    if (targetUrl.includes('169.254.169.254') || targetUrl.includes('metadata.google')) {
+      return {
+        status: 403,
+        ok: false,
+        responseBody: { error: '[WebhookReplay SSRF Blocked] Cloud metadata endpoint is prohibited' },
+      };
+    }
+
+    if (!this.allowLocalhost) {
+      const safety = this.upstreamClient.isSafeUrl(targetUrl);
+      if (!safety.safe) {
+        return {
+          status: 403,
+          ok: false,
+          responseBody: { error: `[WebhookReplay SSRF Blocked] Replay destination rejected: ${safety.reason}` },
+        };
+      }
+    }
+
     const record = this.get(id);
     if (!record) {
-      throw new Error(`Webhook record '${id}' not found`);
+      return {
+        status: 404,
+        ok: false,
+        responseBody: { error: `Webhook record '${id}' not found` },
+      };
     }
 
     const headers: Record<string, string> = {

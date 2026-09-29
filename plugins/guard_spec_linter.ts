@@ -62,11 +62,17 @@ export class SpecSecurityLinter {
     let routeName = '';
     let hasAuth = false;
     let hasRateLimit = false;
+    let inCodeBlock = false;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineNum = i + 1;
       const trimmed = line.trim();
+
+      // Track code fence boundaries
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+      }
 
       // Section Header Tracking
       if (trimmed.startsWith('## ')) {
@@ -134,19 +140,26 @@ export class SpecSecurityLinter {
         }
       }
 
-      // Check SEC-006: Dangerous System Calls
+      // Check SEC-006: Dangerous System Calls & Sandbox Escape (Targets executable code blocks and logic sections)
       if (!this.ignoredRules.has('SEC-006')) {
-        const dangerousCheck = this.checkDangerousCode(trimmed);
-        if (dangerousCheck) {
-          findings.push({
-            ruleId: 'SEC-006',
-            severity: 'critical',
-            message: `Dangerous system call or execution pattern detected: ${dangerousCheck}`,
-            file: filePath,
-            line: lineNum,
-            sample: trimmed,
-            remediation: 'Avoid low-level system commands, shell execution, or file deletion in API specs.',
-          });
+        const isCodeSection =
+          inCodeBlock ||
+          currentSection.includes('logic') ||
+          currentSection.includes('code') ||
+          currentSection.includes('handler');
+        if (isCodeSection && !trimmed.startsWith('```')) {
+          const dangerousCheck = this.checkDangerousCode(trimmed);
+          if (dangerousCheck) {
+            findings.push({
+              ruleId: 'SEC-006',
+              severity: 'critical',
+              message: `Dangerous system call or execution pattern detected: ${dangerousCheck}`,
+              file: filePath,
+              line: lineNum,
+              sample: trimmed,
+              remediation: 'Avoid low-level system commands, shell execution, or file deletion in API specs.',
+            });
+          }
         }
       }
     }
@@ -268,11 +281,11 @@ export class SpecSecurityLinter {
   }
 
   private checkSSRF(line: string): string | null {
-    // AWS / GCP Metadata IP
-    if (line.includes('169.254.169.254')) return 'AWS/GCP Cloud Metadata Service (169.254.169.254)';
-    // Localhost / Loopback
-    if (/(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?/i.test(line)) {
-      return 'Localhost / Loopback Address';
+    // Cloud Metadata Subnet: 169.254.0.0/16
+    if (/(https?:\/\/)?169\.254\.\d{1,3}\.\d{1,3}/.test(line)) return 'Cloud Metadata / Link-Local IP (169.254.x.x)';
+    // Localhost / Loopback: 127.0.0.0/8, 0.0.0.0/8, ::1, or internal domain
+    if (/(https?:\/\/)?(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|localhost|::1|\b\w+\.(localhost|local|internal|lan))(:\d+)?/i.test(line)) {
+      return 'Localhost / Loopback / Internal Address';
     }
     // Private RFC 1918 Class A: 10.0.0.0/8
     if (/(https?:\/\/)?10\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(line)) {
@@ -304,11 +317,33 @@ export class SpecSecurityLinter {
   }
 
   private checkDangerousCode(line: string): string | null {
+    // 1. Direct dangerous modules and shell execution
     if (/\bchild_process\b/.test(line)) return 'child_process import';
-    if (/\bexecSync\s*\(/.test(line) || /\bspawnSync\s*\(/.test(line)) return 'Synchronous shell execution';
-    if (/\bprocess\.exit\s*\(/.test(line)) return 'process.exit() call';
+    if (/\bworker_threads\b/.test(line)) return 'worker_threads import';
+    if (/\b(execSync|spawnSync)\s*\(/.test(line)) return 'Synchronous shell execution';
+    if (/\b(exec|spawn|fork)\s*\(/.test(line)) return 'Process execution call';
+    if (/\bprocess\.(exit|kill|binding|mainModule|dlopen)\b/.test(line)) return 'Dangerous process method invocation';
     if (/\beval\s*\(/.test(line)) return 'Dynamic code evaluation (eval)';
-    if (/\bfs\.(rmSync|unlinkSync|rmdirSync)\b/.test(line)) return 'File deletion system call';
+    if (/\bnew\s+Function\s*\(/.test(line) || /\bFunction\s*\(/.test(line)) return 'Dynamic Function constructor evaluation';
+    if (/\bfs\.(rmSync|unlinkSync|rmdirSync|writeFileSync|appendFileSync)\b/.test(line)) return 'Dangerous filesystem write/delete operation';
+
+    // 2. Prototype climbing and sandbox escape
+    if (/\b(constructor|__proto__|prototype)\b/.test(line)) return 'Sandbox escape via prototype climbing or constructor access';
+    if (/\b(globalThis|global)\b/.test(line)) return 'Global scope access attempt';
+
+    // 3. Obfuscation detection (e.g. 'child_' + 'process', 'con' + 'structor')
+    const collapsed = line.replace(/['"]\s*\+\s*['"]/g, '');
+    if (/\bchild_process\b/.test(collapsed)) return 'Obfuscated child_process string concatenation';
+    if (/\bconstructor\b/.test(collapsed)) return 'Obfuscated constructor string concatenation';
+    if (/\bprocess\b/.test(collapsed) && (collapsed.includes('mainModule') || collapsed.includes('binding') || collapsed.includes('exit'))) {
+      return 'Obfuscated process method access';
+    }
+
+    // 4. Dynamic encoding / payload unpacking
+    if (/\b(atob|String\.fromCharCode)\b/.test(line) && /\(/.test(line)) {
+      return 'Obfuscated payload decoding (dynamic unpacking)';
+    }
+
     return null;
   }
 

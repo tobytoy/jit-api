@@ -246,6 +246,21 @@ export class JITEngine {
     const targetRoute =
       explicitRoute || (typeof payload.route === 'string' ? (payload.route as string) : undefined);
 
+    // Run plugin pre-route execution hooks (Firewall, Safety Guardrails, PII Sanitization)
+    const beforeCheck = await this.pluginManager.beforeRouteExecution({
+      route: targetRoute || 'unknown',
+      payload,
+      headers: headers as any,
+    });
+    if (!beforeCheck.proceed) {
+      const err: any = new Error(beforeCheck.error || 'Request blocked by plugin guard');
+      err.statusCode = beforeCheck.statusCode || 403;
+      throw err;
+    }
+    if (beforeCheck.modifiedPayload !== undefined) {
+      payload = beforeCheck.modifiedPayload;
+    }
+
     // Check if target route has active fast-path validators
     const hasFastPath = targetRoute && (this.fastPathValidators.get(targetRoute)?.size ?? 0) > 0;
 
@@ -331,7 +346,11 @@ export class JITEngine {
           }
 
           if (routeDef.rateLimit) {
-            const ipOrId = (headers?.['x-forwarded-for'] as string) || (headers?.['x-real-ip'] as string) || 'client_direct';
+            const rawXff = headers?.['x-forwarded-for'];
+            const ipOrId =
+              (typeof rawXff === 'string' && rawXff.split(',')[0].trim()) ||
+              (typeof headers?.['x-real-ip'] === 'string' && (headers['x-real-ip'] as string).trim()) ||
+              'client_direct';
             const check = this.rateLimiter.checkLimit(`${targetRoute}:${ipOrId}`, routeDef.rateLimit);
             if (!check.allowed) {
               throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);
@@ -352,6 +371,8 @@ export class JITEngine {
             durationMs: ctx.executionTimeMs,
             success: true,
             timestamp: Date.now(),
+            engineUsed: ctx.engineUsed,
+            aiLatencyMs: ctx.aiLatencyMs,
           });
 
           if (routeDef.notify) {
@@ -408,6 +429,8 @@ export class JITEngine {
       durationMs: res.context.executionTimeMs,
       success: true,
       timestamp: Date.now(),
+      engineUsed: res.context.engineUsed,
+      aiLatencyMs: res.context.aiLatencyMs,
     });
 
     const currentRouteDef = this.router.getRoute(res.route);

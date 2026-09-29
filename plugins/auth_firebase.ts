@@ -41,7 +41,7 @@ export class FirebaseAuthValidator {
 
   constructor(options: FirebaseAuthOptions = {}) {
     this.projectId = options.projectId || process.env.FIREBASE_PROJECT_ID;
-    this.allowTestTokens = options.allowTestTokens ?? true;
+    this.allowTestTokens = options.allowTestTokens ?? (process.env.NODE_ENV !== 'production');
   }
 
   async validate(

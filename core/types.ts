@@ -154,6 +154,9 @@ export interface SchemaSnapshot {
   exportedAt: string;
   version: string;
   schemas: Record<string, IRSchema[]>;
+  signature?: string; // HMAC-SHA256 signature for tamper-proofing
+  signedAt?: number;
+  keyId?: string;
 }
 
 export interface UpstreamDefinition {

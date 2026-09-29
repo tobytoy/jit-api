@@ -324,7 +324,11 @@ export class TypeSafeRouter {
     }
 
     if (this.rateLimiter && routeDef.rateLimit) {
-      const ipOrId = (headers?.['x-forwarded-for'] as string) || (headers?.['x-real-ip'] as string) || 'client_direct';
+      const rawXff = headers?.['x-forwarded-for'];
+      const ipOrId =
+        (typeof rawXff === 'string' && rawXff.split(',')[0].trim()) ||
+        (typeof headers?.['x-real-ip'] === 'string' && (headers['x-real-ip'] as string).trim()) ||
+        'client_direct';
       const check = this.rateLimiter.checkLimit(`${routeDef.route}:${ipOrId}`, routeDef.rateLimit);
       if (!check.allowed) {
         throw new Error(`[HTTP 429 Too Many Requests] ${check.error}`);

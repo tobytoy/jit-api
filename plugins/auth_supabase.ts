@@ -5,6 +5,7 @@
  * for ## Auth: Bearer / ## Auth: Supabase.
  */
 
+import crypto from 'crypto';
 import { JITPlugin, AuthValidationResult } from '../core/plugin.js';
 import { AuthDefinition } from '../core/types.js';
 
@@ -75,6 +76,27 @@ export function createSupabaseAuthPlugin(options?: SupabaseAuthPluginOptions): J
           authenticated: false,
           error: 'Supabase Auth: Invalid JWT token format',
         };
+      }
+
+      // Verify cryptographic signature if jwtSecret is configured
+      const jwtSecret = options?.jwtSecret || process.env.SUPABASE_JWT_SECRET;
+      if (jwtSecret) {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const dataToSign = `${parts[0]}.${parts[1]}`;
+          const expectedSig = crypto
+            .createHmac('sha256', jwtSecret)
+            .update(dataToSign)
+            .digest('base64url');
+          const actualBuf = Buffer.from(parts[2], 'utf8');
+          const expectedBuf = Buffer.from(expectedSig, 'utf8');
+          if (actualBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(actualBuf, expectedBuf)) {
+            return {
+              authenticated: false,
+              error: 'Supabase Auth: Invalid JWT signature',
+            };
+          }
+        }
       }
 
       // Check token expiration

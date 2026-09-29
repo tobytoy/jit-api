@@ -6,6 +6,7 @@
  */
 
 import { JITPlugin, JITRouteEvent } from '../core/plugin.js';
+import { UpstreamClient } from '../core/upstream_client.js';
 
 export interface DiscordEmbedField {
   name: string;
@@ -45,6 +46,7 @@ export async function sendDiscordMessage(
 ): Promise<boolean> {
   const url = webhookUrl || process.env.DISCORD_WEBHOOK_URL;
   if (!url) return false;
+  if (!UpstreamClient.isSafeUrl(url).safe) return false;
 
   const body = typeof payload === 'string' ? { content: payload } : payload;
 
