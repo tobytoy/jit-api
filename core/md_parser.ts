@@ -5,7 +5,7 @@
  */
 
 import vm from 'node:vm';
-import { RouteDefinition, JITRequestContext, AuthDefinition, UpstreamDefinition, RateLimitDefinition } from './types.js';
+import { RouteDefinition, JITRequestContext, AuthDefinition, UpstreamDefinition, RateLimitDefinition, NotifyDefinition } from './types.js';
 
 export interface ParsedMDField {
   name: string;
@@ -21,6 +21,7 @@ export interface ParsedMDSpec {
   auth?: AuthDefinition;
   upstream?: UpstreamDefinition;
   rateLimit?: RateLimitDefinition;
+  notify?: NotifyDefinition;
   description: string;
   intentCriteria: string;
   fields: ParsedMDField[];
@@ -90,6 +91,7 @@ export class MDParser {
     let auth: AuthDefinition | undefined;
     let upstream: UpstreamDefinition | undefined;
     let rateLimit: RateLimitDefinition | undefined;
+    let notify: NotifyDefinition | undefined;
     let description = '';
     let intentCriteria = '';
     const fields: ParsedMDField[] = [];
@@ -189,10 +191,15 @@ export class MDParser {
       // Handle Section: Auth
       if (currentSection === 'auth') {
         if (!auth) auth = { type: 'none' };
-        const typeMatch = trimmed.match(/^(?:-\s*)?type\s*:\s*([a-zA-Z\-]+)/i);
+        const typeMatch = trimmed.match(/^(?:-\s*)?type\s*:\s*([a-zA-Z0-9_\-]+)/i);
         if (typeMatch) {
           const rawType = typeMatch[1].toLowerCase();
-          auth.type = (rawType === 'bearer' || rawType === 'api-key') ? rawType : 'none';
+          auth.type = rawType;
+          continue;
+        }
+        const providerMatch = trimmed.match(/^(?:-\s*)?provider\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (providerMatch) {
+          auth.provider = providerMatch[1].trim().toLowerCase();
           continue;
         }
         const headerMatch = trimmed.match(/^(?:-\s*)?header\s*:\s*([a-zA-Z0-9_\-]+)/i);
@@ -258,6 +265,41 @@ export class MDParser {
         const quotaMatch = trimmed.match(/^(?:-\s*)?(?:dailyquota|daily|quota)\s*:\s*(\d+)/i);
         if (quotaMatch) {
           rateLimit.dailyQuota = parseInt(quotaMatch[1], 10);
+          continue;
+        }
+      }
+
+      // Handle Section: Notify or Relay or Forward
+      if (currentSection === 'notify' || currentSection === 'relay' || currentSection === 'forward') {
+        if (!notify) notify = { target: '', channel: 'line' };
+        const channelMatch = trimmed.match(/^(?:-\s*)?channel\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (channelMatch) {
+          notify.channel = channelMatch[1].trim().toLowerCase();
+          continue;
+        }
+        const targetMatch = trimmed.match(/^(?:-\s*)?target\s*:\s*(.+)/i);
+        if (targetMatch) {
+          notify.target = targetMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const conditionMatch = trimmed.match(/^(?:-\s*)?condition\s*:\s*(.+)/i);
+        if (conditionMatch) {
+          notify.condition = conditionMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const templateMatch = trimmed.match(/^(?:-\s*)?template\s*:\s*(.+)/i);
+        if (templateMatch) {
+          notify.template = templateMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const tokenMatch = trimmed.match(/^(?:-\s*)?(?:tokenenv|token)\s*:\s*(.+)/i);
+        if (tokenMatch) {
+          const raw = tokenMatch[1].trim().replace(/^["']|["']$/g, '');
+          if (raw.startsWith('env.') || /^[A-Z0-9_]+$/.test(raw)) {
+            notify.tokenEnv = raw.replace(/^env\./, '');
+          } else {
+            notify.token = raw;
+          }
           continue;
         }
       }
@@ -356,6 +398,7 @@ export class MDParser {
       auth,
       upstream,
       rateLimit,
+      notify,
       description: description || `Handler for ${route}`,
       intentCriteria: intentCriteria || description || route,
       fields,
@@ -497,6 +540,7 @@ export class MDParser {
       auth: spec.auth,
       upstream: spec.upstream,
       rateLimit: spec.rateLimit,
+      notify: spec.notify,
       description: spec.description,
       intentCriteria: spec.intentCriteria,
       samplePayload: spec.samplePayload,

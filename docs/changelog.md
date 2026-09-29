@@ -4,7 +4,60 @@
 
 ---
 
-## 🚀 [v1.5.0] - 2026-09-24
+## 🚀 [v1.4.1] - 2026-09-29
+
+### 🌟 重大架構演進：外掛中樞 (Plugin Hub)、跨平台部署轉接器與 LINE Mini App (LIFF) 腳手架
+
+本版本專注於**跨平台便捷部署與多生態快速落地**，全面解決靜態託管、邊緣運算、Serverless 與 LINE LIFF 整合痛點，引入外掛機制、部署轉接器與一鍵開箱腳手架：
+
+---
+
+### 1. 🔌 外掛中樞與生命週期管理器 (Plugin Hub & Lifecycle Manager)
+* **核心模組**：新增 [`core/plugin.ts`](../core/plugin.ts)（`PluginManager`、`JITPlugin`、`JITStorageAdapter`）。
+* **內建生態外掛**：
+  * **Supabase Auth Plugin** ([`plugins/auth_supabase.ts`](../plugins/auth_supabase.ts))：解析並驗證 Supabase JWT，支援 `## Auth: Supabase` 與使用者 Role 權限防禦。
+  * **LINE Auth Plugin** ([`plugins/auth_line.ts`](../plugins/auth_line.ts))：驗證 LINE LIFF ID Token，無縫讀取 LINE 使用者 ID、暱稱與頭像。
+  * **Supabase Storage Adapter** ([`plugins/store_supabase.ts`](../plugins/store_supabase.ts))：將 JIT 工單、規格與紅綠燈狀態同步至 Supabase Postgres，斷線時具備自動記憶體降級保護。
+  * **Firebase Firestore Storage Adapter** ([`plugins/store_firestore.ts`](../plugins/store_firestore.ts))：支援將狀態持久化至 Google Cloud / Firebase Firestore。
+  * **LINE Bot Channel Plugin** ([`plugins/channel_line.ts`](../plugins/channel_line.ts))：提供 LINE Webhook HMAC-SHA256 驗簽與 Reply / Push 訊息推送工具。
+
+---
+
+### 2. 🚀 多平台部署轉接器 (Deployment Adapters)
+* **GitHub Pages / Cloudflare Pages 靜態導出器** ([`adapters/static_exporter.ts`](../adapters/static_exporter.ts))：
+  * 將 Web Studio、Markdown 規格與 Smart Mock 預先編譯為純靜態 SPA 包（`dist-pages/`）。
+  * 內建瀏覽器端離線 Mock 攔截器 (`jit-static-runtime.js`)，在 GitHub Pages / Cloudflare Pages 上**完全零伺服器**即可體驗全功能 Web Studio 與 API 調用！
+  * 自動產生 GitHub Actions 部署工作流（`.github/workflows/deploy-pages.yml`）。
+* **OpenAPI 3.0.3 規格導出器** ([`adapters/openapi_exporter.ts`](../adapters/openapi_exporter.ts))：
+  * 將 Markdown 規格即時編譯為標準 OpenAPI 3.0.3 JSON 文件，可直接匯入 Swagger UI、Postman 或 API Gateway。
+* **Cloudflare Workers 邊緣轉接器** ([`adapters/cloudflare_worker.ts`](../adapters/cloudflare_worker.ts))：
+  * 專為 Cloudflare Workers / Pages Functions 設計的 Web Fetch 處理器，無 Node.js `fs` 依賴，享受全球邊緣 0ms 冷啟動。
+* **Firebase Functions 轉接器** ([`adapters/firebase_handler.ts`](../adapters/firebase_handler.ts))：
+  * 支援將 JIT API 包裝為 Firebase Functions v2 `onRequest` 處理器，自帶跨域 CORS 支援。
+
+---
+
+### 3. 🏗️ CLI 擴充：一鍵導出與專案腳手架 (Scaffolding Presets)
+* **導出指令**：
+  * `npx jit-api export pages [--out dist-pages]`：輸出 GitHub / Cloudflare Pages 靜態部署包。
+  * `npx jit-api export openapi [--out openapi.json]`：導出 OpenAPI 3.0.3 規格。
+* **專案腳手架指令**：
+  * `npx jit-api scaffold line-liff [--out liff-app] [--liff-id <ID>]`：一鍵建立完整 LINE Mini App (LIFF) 前端 + JIT 規格骨架。
+  * `npx jit-api scaffold cloudflare`：一鍵產生 Cloudflare Workers + `wrangler.toml` 專案。
+  * `npx jit-api scaffold firebase`：一鍵產生 Firebase Functions 專案。
+  * `npx jit-api scaffold supabase`：一鍵產生 Supabase RLS Schema 與環境範本。
+  * `npx jit-api scaffold line-relay`：一鍵產生 LINE 智慧訊息轉發 Bot 專案（含宣告式 `## Notify` 規格、Cloudflare Worker 進入點與 LINE Webhook 驗簽）。
+
+---
+
+### 🧪 驗證與測試覆載
+* 新增 3 組全功能測試套件：
+  1. `test/plugins.test.ts` (11 項測試)
+  2. `test/adapters.test.ts` (11 項測試)
+  3. `test/declarative_notify.test.ts` (4 項測試) — 涵蓋 `## Notify` 宣告式轉發解析、條件觸發/不觸發、`line-relay` 腳手架產出驗證
+* 全套 28 個測試檔案（共 106 項測試）全數 100% 通過。
+
+---
 
 ### 🌟 重大架構演進：Hugging Face Spaces 部署支援、Master 登入保護、Upstream 轉接安全、多租戶頻率限制與 LINE 多角色 Jev 重要度分流
 

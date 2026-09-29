@@ -26,6 +26,8 @@ import { UpstreamClient } from './upstream_client.js';
 import { RateLimiter } from './rate_limiter.js';
 import { TenantStore } from './tenant_store.js';
 import { UnauthorizedError } from './types.js';
+import { PluginManager, JITPlugin } from './plugin.js';
+import { sendLinePush } from '../plugins/channel_line.js';
 
 export interface JITEngineOptions {
   client?: TypeSafeClient;
@@ -57,6 +59,7 @@ export class JITEngine {
   private upstreamClient: UpstreamClient;
   private rateLimiter: RateLimiter;
   private tenantStore?: TenantStore;
+  public pluginManager: PluginManager;
 
   // Multi-version fast-path validator storage: route -> version -> validator
   private fastPathValidators: Map<
@@ -71,6 +74,7 @@ export class JITEngine {
     this.upstreamClient = options?.upstreamClient || new UpstreamClient();
     this.rateLimiter = options?.rateLimiter || new RateLimiter();
     this.tenantStore = options?.tenantStore || new TenantStore();
+    this.pluginManager = new PluginManager();
 
     this.router = new TypeSafeRouter({
       client,
@@ -82,6 +86,7 @@ export class JITEngine {
       rateLimiter: this.rateLimiter,
       tenantStore: this.tenantStore,
     });
+    this.router.setPluginManager(this.pluginManager);
     this.codegen = new CodegenEngine(options?.codegenOutputDir);
 
     this.trafficLight = new TrafficLightManager();
@@ -247,7 +252,7 @@ export class JITEngine {
 
       if (verMap && verMap.size > 0 && routeDef) {
         // Enforce route authentication in Phase 3
-        TypeSafeRouter.validateAuth(routeDef, headers);
+        await TypeSafeRouter.validateAuth(routeDef, headers, this.pluginManager);
 
         // Sort versions descending (v2, v1, ...) to test newest first
         const sortedVersions = Array.from(verMap.entries()).sort((a, b) => b[0] - a[0]);
@@ -338,6 +343,20 @@ export class JITEngine {
             this.observer.observeEvolution(targetRoute, payload, data).catch(() => {});
           }
 
+          await this.pluginManager.onRouteExecuted({
+            route: targetRoute,
+            phase: 'phase3_frozen',
+            durationMs: ctx.executionTimeMs,
+            success: true,
+            timestamp: Date.now(),
+          });
+
+          if (routeDef.notify) {
+            this.dispatchDeclarativeNotify(routeDef, payload, data).catch((err: any) =>
+              console.warn('[DeclarativeNotify Error]', err)
+            );
+          }
+
           return {
             success: true,
             data,
@@ -380,11 +399,110 @@ export class JITEngine {
       res.context.version = obs.frozenSchema.version;
     }
 
+    await this.pluginManager.onRouteExecuted({
+      route: res.route,
+      phase,
+      durationMs: res.context.executionTimeMs,
+      success: true,
+      timestamp: Date.now(),
+    });
+
+    const currentRouteDef = this.router.getRoute(res.route);
+    if (currentRouteDef && currentRouteDef.notify) {
+      this.dispatchDeclarativeNotify(currentRouteDef, payload, res.result).catch((err: any) =>
+        console.warn('[DeclarativeNotify Error]', err)
+      );
+    }
+
     return {
       success: true,
       data: res.result,
       context: res.context,
     };
+  }
+
+  /**
+   * Evaluate declarative notify / relay rules defined in ## Notify / ## Relay
+   */
+  public async dispatchDeclarativeNotify(
+    routeDef: RouteDefinition,
+    payload: any,
+    result: any
+  ): Promise<{ dispatched: boolean; channel?: string; target?: string; error?: string } | null> {
+    const notify = routeDef.notify;
+    if (!notify || !notify.target) return null;
+
+    // 1. Evaluate condition if present
+    if (notify.condition) {
+      try {
+        const evalScope = {
+          ...payload,
+          ...(typeof result === 'object' && result !== null ? result : {}),
+          payload,
+          data: result,
+          result,
+        };
+        const conditionFn = new Function(...Object.keys(evalScope), `return Boolean(${notify.condition});`);
+        const isMatched = conditionFn(...Object.values(evalScope));
+        if (!isMatched) {
+          return { dispatched: false, channel: notify.channel, target: notify.target };
+        }
+      } catch (err: any) {
+        console.warn(`[DeclarativeNotify] Condition evaluation failed:`, err.message);
+        return { dispatched: false, error: err.message };
+      }
+    }
+
+    // 2. Resolve target (e.g. env.TARGET_C_USER_ID or direct string)
+    let target = notify.target;
+    if (target.startsWith('env.')) {
+      const envKey = target.replace(/^env\./, '');
+      target = process.env[envKey] || '';
+    }
+    if (!target) {
+      console.warn(`[DeclarativeNotify] Target '${notify.target}' resolved to empty string.`);
+      return { dispatched: false, error: 'Target empty' };
+    }
+
+    // 3. Interpolate template
+    const template = notify.template || `[JIT Notification] Route '${routeDef.route}' completed.`;
+    const messageText = template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
+      if (result && typeof result === 'object' && key in result) return String(result[key]);
+      if (payload && typeof payload === 'object' && key in payload) return String(payload[key]);
+      return '';
+    });
+
+    const channel = notify.channel || 'line';
+
+    // 4. Dispatch based on channel
+    if (channel === 'line') {
+      const token = notify.token || (notify.tokenEnv ? process.env[notify.tokenEnv] : process.env.LINE_CHANNEL_ACCESS_TOKEN);
+      if (!token) {
+        console.warn(`[DeclarativeNotify] Missing LINE Channel Access Token for route '${routeDef.route}'.`);
+        return { dispatched: false, channel: 'line', target, error: 'Missing LINE token' };
+      }
+      const success = await sendLinePush(target, [{ type: 'text', text: messageText }], token);
+      return { dispatched: success, channel: 'line', target };
+    } else if (channel === 'webhook') {
+      try {
+        const res = await fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            route: routeDef.route,
+            payload,
+            result,
+            message: messageText,
+            timestamp: Date.now(),
+          }),
+        });
+        return { dispatched: res.ok, channel: 'webhook', target };
+      } catch (err: any) {
+        return { dispatched: false, channel: 'webhook', target, error: err.message };
+      }
+    }
+
+    return { dispatched: true, channel, target };
   }
 
   /**
@@ -424,6 +542,15 @@ export class JITEngine {
 
   public releaseLock(route: string, role?: 'client' | 'server' | 'system' | 'force') {
     return this.trafficLight.releaseLock(route, role);
+  }
+
+  public usePlugin(plugin: JITPlugin): this {
+    this.pluginManager.register(plugin);
+    return this;
+  }
+
+  public getPluginManager(): PluginManager {
+    return this.pluginManager;
   }
 
   public getRouter(): TypeSafeRouter {

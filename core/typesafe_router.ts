@@ -74,10 +74,17 @@ export class TypeSafeRouter {
   /**
    * Validate authentication credentials against route definition
    */
-  public static validateAuth(
+  public pluginManager?: any;
+
+  public setPluginManager(pluginManager: any): void {
+    this.pluginManager = pluginManager;
+  }
+
+  public static async validateAuth(
     routeDef: RouteDefinition,
-    headers?: Record<string, string | string[] | undefined>
-  ): void {
+    headers?: Record<string, string | string[] | undefined>,
+    pluginManager?: any
+  ): Promise<void> {
     const auth = routeDef.auth;
     if (!auth || auth.type === 'none') {
       return;
@@ -99,6 +106,17 @@ export class TypeSafeRouter {
       throw new UnauthorizedError(
         `Authentication required: missing header '${headerName}' for route '${routeDef.route}'`
       );
+    }
+
+    // Delegate to PluginManager if registered
+    if (pluginManager && typeof pluginManager.validateAuth === 'function') {
+      const pluginResult = await pluginManager.validateAuth(headerValue, auth, { headers, route: routeDef.route });
+      if (pluginResult !== null) {
+        if (!pluginResult.authenticated) {
+          throw new UnauthorizedError(pluginResult.error || `Plugin authentication failed for route '${routeDef.route}'`);
+        }
+        return; // Validated successfully by plugin
+      }
     }
 
     const expectedToken = auth.token || (auth.envVar ? process.env[auth.envVar] : undefined);
@@ -163,7 +181,7 @@ export class TypeSafeRouter {
       };
 
       // Validate authentication before handler execution
-      TypeSafeRouter.validateAuth(routeDef, headers);
+      await TypeSafeRouter.validateAuth(routeDef, headers, this.pluginManager);
       this.enrichContextAndCheckLimits(context, routeDef, headers);
 
       const result = await routeDef.handler(needleRes.normalizedPayload, context);
@@ -263,7 +281,7 @@ export class TypeSafeRouter {
     };
 
     // 7. Validate authentication before handler execution
-    TypeSafeRouter.validateAuth(routeDef, headers);
+    await TypeSafeRouter.validateAuth(routeDef, headers, this.pluginManager);
     this.enrichContextAndCheckLimits(context, routeDef, headers);
 
     // 8. Invoke handler

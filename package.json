@@ -1,12 +1,17 @@
 {
   "name": "jit-api",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
     "jit-api": "bin/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./plugins": "./dist/plugins/index.js",
+    "./adapters": "./dist/adapters/index.js"
   },
   "files": [
     "dist",

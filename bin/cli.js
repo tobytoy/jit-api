@@ -40,6 +40,9 @@ const {
   TicketStore,
   LineService,
   JevReviewer,
+  StaticPagesExporter,
+  OpenAPIExporter,
+  ProjectScaffolder,
 } = coreModules;
 
 const args = process.argv.slice(2);
@@ -70,11 +73,15 @@ Commands:
   test              自動化執行 specs/ 中所有 ## Sample 測試範例 (例: npx jit-api test)
   release <version> 建立當前 Markdown 規格之版本快照與 SHA-256 簽名 (例: npx jit-api release 1.0.0)
   rollback <version>驗簽並秒級回滾至指定歷史版本 (例: npx jit-api rollback 1.0.0)
+  export <target>   導出部署包或規格 (pages: GitHub/Cloudflare Pages 離線包, openapi: Swagger JSON)
+  scaffold <preset> 快速產生跨平台專案骨架 (line-liff, cloudflare, firebase, supabase)
   init              在當前專案目錄建立 specs/ 規格目錄與範本
 
 Options:
   --port <number>   指定伺服器連接埠 (dev 預設 3005, prod 預設 3000)
   --specs <path>    指定 Markdown API 規格目錄 (預設: ./specs)
+  --out <dir|file>  指定 export 或 scaffold 的輸出路徑 (預設: ./dist-pages 或 ./openapi.json)
+  --liff-id <id>    指定 LINE LIFF App ID (for scaffold line-liff)
   --target <url>    指定代理或 Mock Client 的目標伺服器位址
   --route <name>    指定 Mock Client 測試的目標路由
   --mode <mode>     指定 Mock Client 模式 (valid | fuzz | chaos, 預設: valid)
@@ -238,6 +245,68 @@ return {
   }
 
   console.log(`\n🚀 下一步：在終端機輸入以下指令啟動 Web 控制台：\n   npx jit-api\n`);
+  process.exit(0);
+}
+
+// Command: export
+if (command === 'export') {
+  const target = args[1] && !args[1].startsWith('-') ? args[1] : 'pages';
+  const outDir = getArg('--out');
+
+  if (target === 'pages' || target === 'gh-pages' || target === 'cf-pages') {
+    console.log(`📦 正在編譯 JIT Web Studio 與規格至純靜態部署包...`);
+    const result = await StaticPagesExporter.export({
+      specsDir,
+      publicDir: path.resolve(packageRoot, 'public'),
+      outDir: outDir || './dist-pages',
+    });
+    console.log(`\n🎉 靜態導出完成！`);
+    console.log(`   - 輸出目錄:       ${result.outDir}`);
+    console.log(`   - 編譯規格數量:   ${result.specCount} 支`);
+    console.log(`   - 產生檔案數:     ${result.filesGenerated.length} 個 (含瀏覽器離線 Mock 攔截器)`);
+    if (result.workflowPath) {
+      console.log(`   - GitHub Actions: ${result.workflowPath}`);
+    }
+    console.log(`\n🚀 部署指南：`);
+    console.log(`   - GitHub Pages: 將代碼推上 main 分支，GitHub Action 將自動完成發布！`);
+    console.log(`   - Cloudflare Pages: 在 Cloudflare Pages 綁定 repo，Build Output 目錄填入 dist-pages\n`);
+    process.exit(0);
+  } else if (target === 'openapi' || target === 'swagger') {
+    const outFile = outDir || './openapi.json';
+    console.log(`📑 正在將 Markdown 規格轉換為 OpenAPI 3.0.3 格式...`);
+    OpenAPIExporter.export({
+      specsDir,
+      outFile,
+    });
+    console.log(`✅ OpenAPI 3.0.3 規格已成功導出至: ${outFile}\n`);
+    process.exit(0);
+  } else {
+    console.error(`❌ 未知的導出目標: '${target}'。支援: pages (GitHub/Cloudflare Pages), openapi`);
+    process.exit(1);
+  }
+}
+
+// Command: scaffold
+if (command === 'scaffold') {
+  const preset = args[1] && !args[1].startsWith('-') ? args[1] : 'line-liff';
+  const outDir = getArg('--out');
+  const liffId = getArg('--liff-id');
+
+  if (!['line-liff', 'cloudflare', 'firebase', 'supabase', 'line-relay'].includes(preset)) {
+    console.error(`❌ 未知的骨架類型: '${preset}'。支援: line-liff, cloudflare, firebase, supabase, line-relay`);
+    process.exit(1);
+  }
+
+  console.log(`🏗️  正在為預設 '${preset}' 建立專案骨架...`);
+  const result = await ProjectScaffolder.scaffold({
+    preset,
+    outDir,
+    liffId,
+  });
+
+  console.log(`\n🎉 專案骨架已成功建立於: ${result.outDir}`);
+  result.files.forEach((f) => console.log(`   + ${path.relative(process.cwd(), f)}`));
+  console.log(`\n👉 請進入 ${result.outDir} 並參考 README.md 開始開發！\n`);
   process.exit(0);
 }
 

@@ -84,10 +84,12 @@ export interface JevResponse {
 }
 
 export interface AuthDefinition {
-  type: 'none' | 'bearer' | 'api-key';
+  type: 'none' | 'bearer' | 'api-key' | 'supabase' | 'line' | string;
   header?: string;
   token?: string;
   envVar?: string;
+  provider?: string;
+  options?: Record<string, any>;
 }
 
 export class UnauthorizedError extends Error {
@@ -96,6 +98,15 @@ export class UnauthorizedError extends Error {
     super(message);
     this.name = 'UnauthorizedError';
   }
+}
+
+export interface NotifyDefinition {
+  channel?: 'line' | 'webhook' | 'slack' | 'discord' | string;
+  target: string;
+  condition?: string;
+  template?: string;
+  tokenEnv?: string;
+  token?: string;
 }
 
 export interface RouteDefinition {
@@ -107,6 +118,7 @@ export interface RouteDefinition {
   auth?: AuthDefinition;
   upstream?: UpstreamDefinition;
   rateLimit?: RateLimitDefinition;
+  notify?: NotifyDefinition;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
   enumFields?: Record<string, Record<string, string>>;
