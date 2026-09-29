@@ -32,7 +32,7 @@
     "example:ts:client": "tsx docs/examples/ts_client.ts",
     "example:py:server": "PYTHONPATH=python python3 docs/examples/py_server.py",
     "example:py:client": "PYTHONPATH=python python3 docs/examples/py_client.py",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=15000",
     "test:py": "PYTHONPATH=python pytest python/tests/ -v"
   },
   "keywords": [

@@ -33,8 +33,11 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
+      - name: Compile TypeScript
+        run: npm run build
+
       - name: Build static bundle
-        run: npx jit-api export pages --out dist-pages
+        run: node bin/cli.js export pages --out dist-pages
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

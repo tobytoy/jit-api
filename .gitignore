@@ -237,6 +237,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Runtime Generated Artifacts & Tests
+dist-pages/
 generated/
 .test_generated/
 .jit/*.json

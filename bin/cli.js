@@ -18,12 +18,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, '..');
 
-// Dynamic import core modules (supports both compiled dist and source)
+// Dynamic import core modules (supports compiled dist and auto-builds if in source checkout)
 let coreModules;
+const distCorePath = path.join(packageRoot, 'dist', 'core', 'index.js');
+
+if (!fs.existsSync(distCorePath) && fs.existsSync(path.join(packageRoot, 'core', 'index.ts'))) {
+  try {
+    const { execSync } = await import('child_process');
+    console.log('⚡ [jit-api] Dist not found in source checkout. Running npm run build...');
+    execSync('npm run build', { cwd: packageRoot, stdio: 'inherit' });
+  } catch (buildErr) {
+    console.error('❌ [jit-api] Build failed. Please run "npm run build" first.');
+    process.exit(1);
+  }
+}
+
 try {
   coreModules = await import('../dist/core/index.js');
-} catch {
-  coreModules = await import('../core/index.js');
+} catch (err) {
+  console.error(`❌ [jit-api] Could not load core modules from ${distCorePath}:`, err.message);
+  process.exit(1);
 }
 
 const {
