@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 [v1.5.0] - 2026-09-30
+## 🚀 [v1.4.4] - 2026-09-30
 
 ### 🌟 重大躍進：全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器
 

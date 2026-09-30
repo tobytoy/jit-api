@@ -127,7 +127,7 @@ export function haversineDistanceMeters(
 
 export class GeoSpatialPlugin implements JITPlugin {
   public name = 'plugin-geo-spatial';
-  public version = '1.5.0';
+  public version = '1.4.4';
   public description = 'Spatial grid cache normalization and Geohash engine for edge LBS routes';
 
   private defaultPrecision: SpatialPrecision;

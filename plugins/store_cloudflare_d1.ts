@@ -132,7 +132,7 @@ export function createCloudflareD1Plugin(options: CloudflareD1Options): JITPlugi
   const adapter = new CloudflareD1Adapter(options.db, options.tableName, options.autoMigrate);
   return {
     name: 'store-cloudflare-d1',
-    version: '1.5.0',
+    version: '1.4.4',
     description: 'Cloudflare D1 SQLite storage adapter for relational edge persistence',
     storageAdapter: adapter,
   };

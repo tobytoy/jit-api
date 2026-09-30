@@ -79,7 +79,7 @@ export function createCloudflareKVPlugin(options: CloudflareKVOptions): JITPlugi
   const adapter = new CloudflareKVAdapter(options.kv, options.prefix, options.defaultTtlSeconds);
   return {
     name: 'store-cloudflare-kv',
-    version: '1.5.0',
+    version: '1.4.4',
     description: 'Cloudflare Workers KV storage adapter for global edge persistence',
     storageAdapter: adapter,
   };
