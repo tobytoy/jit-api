@@ -78,8 +78,11 @@ export class MCPAdapter {
     });
 
     const specs = mdLoader.loadAll(engine, stageFilter);
+    const registeredTools = new Set<string>();
 
     for (const spec of specs) {
+      if (registeredTools.has(spec.route)) continue;
+      registeredTools.add(spec.route);
       const shape = this.buildZodShape(spec.fields);
       const desc = `${spec.description || spec.route}. (Intent: ${spec.intentCriteria})`;
 

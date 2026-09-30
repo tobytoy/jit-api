@@ -142,6 +142,7 @@ export class MDLoader {
    */
   public loadAll(engine: JITEngine, filterStage?: 'all' | 'prod' | 'dev'): ParsedMDSpec[] {
     const loadedSpecs: ParsedMDSpec[] = [];
+    const loadedRoutes = new Set<string>();
 
     // 1. Load any inline specs first (Workers / serverless mode)
     for (const [file, content] of this.inlineSpecs.entries()) {
@@ -150,6 +151,10 @@ export class MDLoader {
         if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
           continue;
         }
+        if (loadedRoutes.has(spec.route)) {
+          continue;
+        }
+        loadedRoutes.add(spec.route);
         const routeDef = MDParser.toRouteDefinition(spec);
         engine.register(routeDef);
         loadedSpecs.push(spec);
@@ -181,6 +186,11 @@ export class MDLoader {
         if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
           continue;
         }
+
+        if (loadedRoutes.has(spec.route)) {
+          continue;
+        }
+        loadedRoutes.add(spec.route);
 
         const routeDef = MDParser.toRouteDefinition(spec);
         engine.register(routeDef);
