@@ -10,6 +10,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Express, Request, Response } from 'express';
 import { z } from 'zod';
 import { JITEngine } from './jit_engine.js';
@@ -35,16 +36,29 @@ export class MCPAdapter {
     const shape: Record<string, z.ZodTypeAny> = {};
 
     for (const f of fields) {
+      const isOptional = f.optional || (f.description && /(?:選填|optional|\(選填\))/i.test(f.description));
+      let fieldZod: z.ZodTypeAny;
+
       if (f.type === 'number') {
-        shape[f.name] = z.number().describe(f.description || f.name);
+        fieldZod = z.number();
       } else if (f.type === 'boolean') {
-        shape[f.name] = z.boolean().describe(f.description || f.name);
+        fieldZod = z.boolean();
       } else if (f.type === 'enum' && f.enumValues) {
         const keys = Object.keys(f.enumValues) as [string, ...string[]];
-        shape[f.name] = (keys.length > 0 ? z.enum(keys) : z.string()).describe(f.description || f.name);
+        fieldZod = keys.length > 0 ? z.enum(keys) : z.string();
       } else {
-        shape[f.name] = z.string().describe(f.description || f.name);
+        fieldZod = z.string();
       }
+
+      if (f.description) {
+        fieldZod = fieldZod.describe(f.description);
+      }
+
+      if (isOptional) {
+        fieldZod = fieldZod.optional();
+      }
+
+      shape[f.name] = fieldZod;
     }
 
     return shape;
@@ -154,6 +168,81 @@ export class MCPAdapter {
     console.log(`   - 訊息接收入口: http://localhost:${port}${messagePath}`);
   }
 
+  /**
+   * Create a Web Standard (Fetch API compatible) request handler for MCP
+   * Compatible with Cloudflare Workers, Hono, Bun, and Deno
+   */
+  public static createWebStandardHandler(
+    engine: JITEngine,
+    mdLoader: MDLoader,
+    options?: {
+      stageFilter?: 'all' | 'prod' | 'dev';
+      keepAliveMs?: number;
+      enableJsonResponse?: boolean;
+    }
+  ): (request: globalThis.Request | { raw: globalThis.Request }) => Promise<globalThis.Response> {
+    const stageFilter = options?.stageFilter || 'all';
+    const keepAliveMs = options?.keepAliveMs ?? 0;
+    const enableJsonResponse = options?.enableJsonResponse ?? true;
+
+    return async (req: globalThis.Request | { raw: globalThis.Request }) => {
+      const mcpServer = MCPAdapter.createMcpServer(engine, mdLoader, stageFilter);
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        keepAliveMs,
+        enableJsonResponse,
+      });
+      await mcpServer.connect(transport);
+      const rawReq = 'raw' in req && req.raw instanceof Request ? req.raw : (req as globalThis.Request);
+      return await transport.handleRequest(rawReq);
+    };
+  }
+
+  /**
+   * Attach MCP protocol endpoints (/mcp, /sse, /messages) directly to a Hono application
+   */
+  public static attachToHono(
+    app: any,
+    engine: JITEngine,
+    mdLoader: MDLoader,
+    options?: {
+      mcpPath?: string;
+      ssePath?: string;
+      messagePath?: string;
+      stageFilter?: 'all' | 'prod' | 'dev';
+      authMiddleware?: any;
+    }
+  ): void {
+    const mcpPath = options?.mcpPath || '/mcp';
+    const ssePath = options?.ssePath || '/sse';
+    const messagePath = options?.messagePath || '/message';
+    const stageFilter = options?.stageFilter || 'all';
+    const handler = this.createWebStandardHandler(engine, mdLoader, { stageFilter });
+
+    const handleRoute = async (c: any) => {
+      try {
+        return await handler(c.req?.raw || c.req);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json(
+          { jsonrpc: '2.0', error: { code: -32603, message }, id: null },
+          500
+        );
+      }
+    };
+
+    if (options?.authMiddleware) {
+      app.use(mcpPath, options.authMiddleware);
+      app.use(ssePath, options.authMiddleware);
+      app.use(messagePath, options.authMiddleware);
+    }
+
+    app.get(mcpPath, handleRoute);
+    app.post(mcpPath, handleRoute);
+    app.delete(mcpPath, handleRoute);
+    app.get(ssePath, handleRoute);
+    app.post(ssePath, handleRoute);
+    app.post(messagePath, handleRoute);
+  }
   /**
    * Start MCP server over standard I/O (for Claude Desktop / Cursor CLI)
    */

@@ -11,9 +11,9 @@ export interface ParsedMDField {
   name: string;
   type: string;
   description?: string;
+  optional?: boolean;
   enumValues?: Record<string, string>;
 }
-
 export interface ParsedMDSpec {
   route: string;
   version?: string;

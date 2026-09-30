@@ -33,14 +33,44 @@ export interface ReleaseInfo {
 export class MDLoader {
   private specsDir: string;
   private releasesDir: string;
+  private inlineSpecs: Map<string, string> = new Map();
 
-  constructor(specsDir?: string, releasesDir?: string) {
-    const defaultDir = process.env.JIT_SPECS_DIR || path.resolve(process.cwd(), 'specs');
+  constructor(specsDir?: string, releasesDir?: string, inlineSpecs?: Record<string, string>) {
+    const defaultDir =
+      typeof process !== 'undefined' && process.env?.JIT_SPECS_DIR
+        ? process.env.JIT_SPECS_DIR
+        : typeof process !== 'undefined' && typeof process.cwd === 'function'
+        ? path.resolve(process.cwd(), 'specs')
+        : '/app/specs';
+
     this.specsDir = specsDir ? path.resolve(specsDir) : defaultDir;
-    this.releasesDir = releasesDir ? path.resolve(releasesDir) : path.resolve(process.cwd(), '.jit', 'releases');
-    if (!fs.existsSync(this.specsDir)) {
-      fs.mkdirSync(this.specsDir, { recursive: true });
+    this.releasesDir = releasesDir
+      ? path.resolve(releasesDir)
+      : typeof process !== 'undefined' && typeof process.cwd === 'function'
+      ? path.resolve(process.cwd(), '.jit', 'releases')
+      : '/app/.jit/releases';
+
+    if (inlineSpecs) {
+      for (const [filename, content] of Object.entries(inlineSpecs)) {
+        this.inlineSpecs.set(filename, content);
+      }
     }
+
+    try {
+      if (typeof fs !== 'undefined' && fs.existsSync && !fs.existsSync(this.specsDir)) {
+        fs.mkdirSync(this.specsDir, { recursive: true });
+      }
+    } catch {
+      // ignore in readonly or edge isolates (Workers)
+    }
+  }
+
+  /**
+   * Register an inline spec string (useful in serverless / Cloudflare Workers)
+   */
+  public addInlineSpec(filename: string, content: string): this {
+    this.inlineSpecs.set(filename, content);
+    return this;
   }
 
   public getSpecsDir(): string {
@@ -111,11 +141,36 @@ export class MDLoader {
    * Load and register all *.api.md files into the JITEngine
    */
   public loadAll(engine: JITEngine, filterStage?: 'all' | 'prod' | 'dev'): ParsedMDSpec[] {
-    if (!fs.existsSync(this.specsDir)) return [];
-
-    const files = fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.md'));
     const loadedSpecs: ParsedMDSpec[] = [];
 
+    // 1. Load any inline specs first (Workers / serverless mode)
+    for (const [file, content] of this.inlineSpecs.entries()) {
+      try {
+        const spec = MDParser.parse(content, file);
+        if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
+          continue;
+        }
+        const routeDef = MDParser.toRouteDefinition(spec);
+        engine.register(routeDef);
+        loadedSpecs.push(spec);
+      } catch (err: any) {
+        console.error(`[MDLoader] Error loading inline spec ${file}:`, err.message);
+      }
+    }
+
+    // 2. Load from disk if filesystem exists
+    try {
+      if (!fs.existsSync || !fs.existsSync(this.specsDir)) return loadedSpecs;
+    } catch {
+      return loadedSpecs;
+    }
+
+    let files: string[] = [];
+    try {
+      files = fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.md'));
+    } catch {
+      return loadedSpecs;
+    }
     for (const file of files) {
       const fullPath = path.join(this.specsDir, file);
       try {
