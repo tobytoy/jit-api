@@ -4,6 +4,75 @@
 
 ---
 
+## 🚀 [v1.5.0] - 2026-09-30
+
+### 🌟 重大躍進：全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器
+
+本版本標誌著 JIT-API 邁向全方位智慧協定合成與多雲邊緣架構的全新里程碑：
+
+---
+
+### 1. 🌐 全方位 MCP 協定光譜：Tools + Resources + Prompts + 即時伺服器廣播 (Full Spectrum MCP)
+* **規格級 Prompt 與 Resource 聲明** ([`core/md_parser.ts`](../core/md_parser.ts), [`core/md_loader.ts`](../core/md_loader.ts), [`core/types.ts`](../core/types.ts))：
+  * 支援 `# Resource: <uri>` 規格檔，提供 MIME 類型、靜態與動態文字內容讀取。
+  * 支援 `# Prompt: <name>` 規格檔，支援宣告式引數列表（`## Arguments`）與角色對話樣板（`## Template` / `user`, `assistant`, `system`）。
+  * `MDLoader` 原生辨識 `.resource.md` 與 `.prompt.md` 規格，提供 `getResources()` 與 `getPrompts()` 統一載入。
+* **MCP 即時伺服器發送通知 (Server-Sent Notifications)** ([`core/mcp_adapter.ts`](../core/mcp_adapter.ts))：
+  * 符合 MCP 規範之主動廣播機制：`broadcastResourceUpdated(uri)` 即時通知 AI Agent 資源異動 (`notifications/resources/updated`)。
+  * 系統級警報廣播：`broadcastAlert(level, message, metadata)` 發送即時日誌通知 (`notifications/message`)。
+  * 支援多 active MCP server 實例管理與生命週期同步。
+
+---
+
+### 2. ⚡ Cloudflare 邊緣儲存外掛生態 (Edge Storage Plugins: Workers KV & D1 SQLite)
+* **Cloudflare Workers KV 儲存配接器** ([`plugins/store_cloudflare_kv.ts`](../plugins/store_cloudflare_kv.ts))：
+  * 提供 `CloudflareKVAdapter` 與工廠函式 `createCloudflareKVPlugin()`。
+  * 支援原生 Cloudflare Worker 綁定（`env.MY_KV`）與遠端 REST API 兩種模式，具備 TTL、命名空間隔離與本地記憶體保底（Offline Fallback）。
+* **Cloudflare D1 邊緣關聯式資料庫配接器** ([`plugins/store_cloudflare_d1.ts`](../plugins/store_cloudflare_d1.ts))：
+  * 提供 `CloudflareD1Adapter` 與工廠函式 `createCloudflareD1Plugin()`。
+  * 支援 SQLite 表結構自動建立（`CREATE TABLE IF NOT EXISTS jit_storage`），支援直接綁定與遠端 HTTP 代理。
+* **密碼學防投毒 (Anti-Tampering) 完美整合**：
+  * 兩款 Cloudflare 儲存配接器皆通過 `SignedStorageAdapter` 完整驗證，在邊緣環境同樣享有 HMAC-SHA256 數位簽章保護，徹底防範全叢集投毒。
+
+---
+
+### 3. 🗺️ 純 JS 地理空間感知與網格計算外掛 (Pure JS Geo-Spatial Plugin)
+* **輕量零依賴空間計算模組** ([`plugins/plugin_geo_spatial.ts`](../plugins/plugin_geo_spatial.ts))：
+  * 支援標準 Base32 **Geohash 編碼與解碼** (`encodeGeohash`)，支援可配置精度（預設 7 碼，約 150m）。
+  * 支援空間網格歸一化分桶 (`getSpatialGridId`)，輕鬆將經緯度劃分入離散空間區域。
+  * 支援經緯度小數位精準吸附 (`snapCoordinate`)。
+  * 支援球面大圓距離計算 (`haversineDistanceMeters`)。
+* **全生命週期動態注入**：
+  * 於 `context.geo` 自動注入空間計算公用函式，沙盒邏輯及下游路由可直接調用，無需外掛肥重 C++ / GEOS 原生函式庫，完美運行於 Cloudflare Workers、Deno、Bun 與 Node.js。
+
+---
+
+### 4. 🔌 宣告式上游彈性韌性系統 (Declarative Upstream Resilience: Circuit Breaker & Exponential Backoff)
+* **上游客戶端硬化與狀態機** ([`core/upstream_client.ts`](../core/upstream_client.ts), [`core/types.ts`](../core/types.ts))：
+  * **熔斷器 (Circuit Breaker)**：具備 `CLOSED`、`OPEN`、`HALF_OPEN` 三態狀態機，連續失敗次數超限即跳脫並拋出 `CircuitBreakerOpenError`，冷卻時間後自動進入半開探測。
+  * **重試機制 (Retry Policy)**：支援線性（`linear`）與指數退避（`exponential`）重試演算法，附帶抖動（jitter）防止雪崩效應。
+  * **宣告式 Mock 回退 (Fallback Mock)**：當上游斷線或熔斷開啟時，自動回退至規格定義之保底資料，維持服務高可用性。
+  * **URL 動態模板插值**：自動比對 `{variable}` 與請求 Payload，自動拼接端點。
+* **Markdown 規格宣告語法**：
+  * 於 `## Upstream` 區塊支援宣告 `Retry: 3 max, backoff=exponential`、`CircuitBreaker: failures=3, timeout=5000` 與 `FallbackMock: { "status": "DEGRADED" }`。
+
+---
+
+### 5. 🔤 列舉同義詞智慧自癒 (Enum Synonym Auto-Repair)
+* **規格級同義詞宣告與自癒轉換** ([`core/auto_repair.ts`](../core/auto_repair.ts), [`core/md_parser.ts`](../core/md_parser.ts))：
+  * 於 `## Fields` 的枚舉型別支援語法：`[同義詞: 台鐵, 臺鐵 -> tra; 高鐵 -> thsr]` 或 `[synonyms: ...]`, 自動建立雙向同義詞映射表。
+  * 在 Phase 3 快路徑或 Fallback 自癒流程中，自動將口語化、縮寫、繁簡異體別名校正為標準合法列舉值，兼顧嚴格合約校驗與用戶輸入彈性。
+
+---
+
+### 6. 🧩 規格組合編排器 (Spec Composition & Aggregator)
+* **宣告式多路由平行聚合** ([`core/md_parser.ts`](../core/md_parser.ts), [`core/types.ts`](../core/types.ts))：
+  * 支援在規格檔內使用 `## Compose` 宣告平行聚合任務。
+  * 支援語法：`- Parallel: - parking: call(get_parking, { lat: payload.latitude })`。
+  * 自動並行派發子路由執行，並整合各子路由資料為結構化回應，大幅簡化微服務 API 組合流程。
+
+---
+
 ## 🚀 [v1.4.3] - 2026-09-29
 
 ### 🌟 重大硬化：企業級可觀測性 (Prometheus / OpenTelemetry)、細粒度 RBAC 鑑權、Node.js VM 沙盒深度硬化與 RCE 防禦

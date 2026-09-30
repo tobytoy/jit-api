@@ -90,6 +90,7 @@ export class JITEngine {
       tenantStore: this.tenantStore,
     });
     this.router.setPluginManager(this.pluginManager);
+    this.router.setEngine(this);
     this.codegen = new CodegenEngine(options?.codegenOutputDir);
 
     this.trafficLight = new TrafficLightManager();
@@ -325,6 +326,12 @@ export class JITEngine {
             headers,
             upstreamFetch: (url, opts) => this.upstreamClient.fetch(url, opts).then((r) => r.data),
           };
+          Object.defineProperty(ctx, 'engine', {
+            value: this,
+            enumerable: false,
+            writable: true,
+            configurable: true,
+          });
 
           if (this.tenantStore) {
             const apiKey = this.extractApiKey(headers);

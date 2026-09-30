@@ -65,15 +65,18 @@ User wants to buy, purchase, checkout or order items and products
 - item: string (購買商品名稱)
 - amount: number (結帳金額，正整數)
 - customerId: string (會員編號)
-- paymentMethod: enum (付款方式)
+- paymentMethod: enum (付款方式) [同義詞: 刷卡, 信用卡 -> CREDIT_CARD; 行動支付, LINE -> LINE_PAY]
   - CREDIT_CARD: 信用卡
   - LINE_PAY: 行動支付
   - BANK_TRANSFER: 銀行轉帳
 
 ## Upstream
-- Target: https://payment-service.internal/api/charge
+- Target: https://payment-service.internal/api/charge/{customerId}
 - Method: POST
 - Timeout: 5000
+- Retry: 3 max, backoff=exponential
+- CircuitBreaker: failures=3, timeout=5000
+- FallbackMock: {"status": "DEGRADED", "fallback": true}
 
 ## Notify
 - Target: ${LINE_ALERT_GROUP_ID}
@@ -111,6 +114,44 @@ return {
   timestamp: new Date().toISOString()
 };
 ```
+```
+
+#### 2.2 規格組合編排器 (`## Compose`) 範例
+```markdown
+# API: get_transport_context
+Stage: prod
+
+## Compose
+- Parallel:
+    - parking: call(get_parking, { lat: payload.latitude, lon: payload.longitude })
+    - incidents: call(get_incidents, { lat: payload.latitude, lon: payload.longitude })
+
+## Fields
+- latitude: number (緯度)
+- longitude: number (經度)
+```
+
+#### 2.3 全方位 MCP 資源與提示詞規格 (`.resource.md` / `.prompt.md`)
+```markdown
+# Resource: system://database-status
+Name: Database Cluster Status
+Description: Real-time health metrics of primary storage cluster
+MimeType: application/json
+
+{"status": "HEALTHY", "activeConnections": 42, "replicationLagMs": 1.2}
+```
+
+```markdown
+# Prompt: analyze_order_risk
+Description: Evaluate order fraud and credit risk with structured indicators
+
+## Arguments
+- orderId: string (Order ID to analyze)
+- userRiskScore: number (User behavioral risk score 0-100)
+
+## Template
+- user: 請針對訂單 {orderId}（風險分數: {userRiskScore}）進行詐欺防護與風險評估。
+- assistant: 我將依據歷史風控模型與行為特徵進行即時核對。
 ```
 
 ---
@@ -164,11 +205,36 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
 - `channel-telegram`：Telegram Bot API 訊息推播。
 - `channel-slack`：Slack Webhook 與 Block Kit 結構化排版。
 
-### 3. 身分驗證與資安守門
+### 3. 身分驗證與進階 RBAC 資安守門
+- `auth-rbac-jwt`：
+  - **加密簽名驗證**：支援 HS256 (HMAC-SHA256) 與 RS256 (RSA-SHA256) 常數時間比對（`timingSafeEqual` 防止時序攻擊）。
+  - **Token 撤銷與 JTI 黑名單**：支援即時撤銷 Token（內建記憶體 TTL 清理與外掛式 Redis 介面）。
+  - **Action 級別細粒度 RBAC**：支援操作權限通配符（如 `orders:*`、`billing:refund`、`*:read`）與角色權限對應矩陣（Role-to-Permission Matrix）。
 - `auth-supabase` / `auth-line` / `auth-firebase` / `auth-clerk`：快速驗證各主流身分提供者 JWT。
 - `guard-safety`：Prompt Injection 攔截 + 台灣在地化個資脫敏（電話、身分證、信用卡、Email）。
-- `guard-spec-linter`：靜態資安掃描，支援在 `strictMode` 下阻斷危險規格啟動。
+- `guard-spec-linter`：靜態資安 SAST 掃描，升級 `SEC-006` 混淆字串還原檢測（如 `'child_' + 'process'`）、原型攀爬防禦（`constructor` / `__proto__` / `globalThis`）與動態解碼攔截（`atob`）。
 - `tool-webhook-replay`：Webhook 流量循環記錄器與一鍵重發除錯工具。
+
+### 4. 企業級可觀測性與分散式追蹤 (Observability & Tracing)
+- `observability-prometheus` (`createPrometheusPlugin`)：
+  - 標準 OpenMetrics / Prometheus 0.0.4 格式 `/metrics` 匯出端點。
+  - P50、P90、P99 請求延遲分位數（Summary）、延遲直方圖桶位（Histogram Buckets）、AI 推理延遲、凍結路由儀表（Gauges）與漂移次數計數器。
+  - 內建 `createMetricsHandler()`，支援 Express、ConnectRPC 與原生 Node.js HTTP 伺服器掛載。
+- `observability-opentelemetry` (`createOpenTelemetryPlugin`)：
+  - 完整相容 W3C TraceContext（`traceparent: 00-${traceId}-${spanId}-01`）。
+  - 階層化 Spans：`jit.request`（根請求）、`jit.route`（路由匹配）、`jit.logic_execution`（沙盒邏輯）、`jit.upstream_fetch`（上游代理）。
+  - 支援 `InMemorySpanExporter`、`ConsoleSpanExporter` 與自訂 OTLP 匯出。
+
+### 5. 邊緣運算儲存與地理空間感知 (Edge Storage & Geo-Spatial Plugins)
+- `store-cloudflare-kv` (`CloudflareKVAdapter` / `createCloudflareKVPlugin`)：
+  - 支援原生 Cloudflare Worker 綁定（`env.MY_KV`）與遠端 REST API 存取。
+  - 內建 TTL、命名空間隔離與記憶體保底（Offline Fallback），相容 `SignedStorageAdapter` 密碼學防投毒保護。
+- `store-cloudflare-d1` (`CloudflareD1Adapter` / `createCloudflareD1Plugin`)：
+  - 支援 Cloudflare D1 邊緣 SQLite 關聯資料庫，具備自動建表與本機記憶體備份機制。
+- `plugin-geo-spatial` (`GeoSpatialPlugin` / `createGeoSpatialPlugin`)：
+  - 純 JS 零 C++ 依賴空間計算工具，相容 Node.js、Cloudflare Workers、Deno 與 Bun。
+  - 支援標準 Base32 **Geohash 編解碼** (`encodeGeohash`)、空間經緯度離散網格歸一化 (`getSpatialGridId`)、經緯度精度吸附 (`snapCoordinate`) 與球面大圓距離計算 (`haversineDistanceMeters`)。
+  - 於 `context.geo` 自動注入空間計算公用函式供沙盒邏輯及下游調用。
 
 ---
 
@@ -178,9 +244,43 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
 
 | 版本 Tag | 發布日期 | 核心升級與解決痛點 | 關鍵新增模組 / 功能 |
 | :--- | :--- | :--- | :--- |
-| **`v1.1.1`** | 2026-09 | **修復與穩定性加固**<br>解決 MCPAdapter 在生產環境的 stage 洩漏、伺服器連接埠碰撞自動重試、生產環境關閉 Terminal、Rollback 孤兒檔案隔離。 | `core/mcp_adapter.ts`<br>連接埠重試邏輯<br>Rollback 簽名校驗 |
+| **`v1.5.0`** | 2026-09 | **全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器**<br>規格檔 `# Resource: <uri>` 與 `# Prompt: <name>` 自動解析；MCP 即時 SSE/Stdio 資源異動通知 (`broadcastResourceUpdated`) 與系統警報 (`broadcastAlert`)；Cloudflare Workers KV 與 D1 邊緣儲存外掛；純 JS 地理空間外掛 (Geohash、Haversine、網格分桶歸一化)；上游三態熔斷器 (`CLOSED`/`OPEN`/`HALF_OPEN`)、指數退避重試、URL 模板插值與保底 Mock；列舉同義詞口語別名自動自癒轉換 (`[同義詞: ...]`)；多規格平行宣告式聚合編排器 (`## Compose`)。 | `core/mcp_adapter.ts`<br>`plugins/store_cloudflare_kv.ts`<br>`plugins/store_cloudflare_d1.ts`<br>`plugins/plugin_geo_spatial.ts`<br>`core/upstream_client.ts`<br>`core/auto_repair.ts`<br>`core/md_parser.ts` (Compose & Synonyms) |
+| **`v1.4.3`** | 2026-09 | **企業級可觀測性、細粒度 RBAC、沙盒深度硬化與 Redis 防投毒 (Hardening)**<br>Prometheus `/metrics` 匯出端點 (P50/P90/P99 延遲直方圖)；OpenTelemetry W3C TraceContext 分散式追蹤；HS256/RS256 加密驗簽與 JTI 黑名單；Action 級別通配符 RBAC；Node.js VM 沙盒原型硬隔離 (Null-Prototype / Realm JSON Deserialization / 嚴格模式禁用 this) 與 SEC-006 混淆逃逸檢測；`SchemaStore` 與 `SignedStorageAdapter` 密碼學 HMAC-SHA256 簽名防止全叢集合約投毒 (Anti-Poisoning)。 | `plugins/observability_prometheus.ts`<br>`plugins/observability_opentelemetry.ts`<br>`plugins/auth_rbac_jwt.ts`<br>`core/md_parser.ts` (Harden Sandbox)<br>`plugins/guard_spec_linter.ts` (SEC-006 De-obfuscation)<br>`core/schema_store.ts`<br>`core/signed_storage.ts` |
+| **`v1.4.2`** | 2026-09 | **外掛生態擴充、試算表資料庫、靜態資安稽核**<br>Google Sheets 試算表資料庫 (No-Code CMS)；Notion / Upstash Redis 儲存；Discord / Telegram / Slack 全通路告警轉發；Firebase / Clerk 認證；Prompt Injection 阻斷與台灣個資脫敏；靜態資安 SAST 稽核 (`npx jit-api audit`)；Agent Master Guide。 | `plugins/store_googlesheets.ts`<br>`plugins/channel_*`<br>`plugins/guard_safety.ts`<br>`plugins/guard_spec_linter.ts`<br>`.agent/skills/jit-protocol/` |
 | **`v1.2.0`** | 2026-09 | **沙盒隔離與安全性防禦**<br>引進 Node.js VM 沙盒執行使用者邏輯，杜絕主行程崩潰；引入 `## Auth` 規格層級驗證；生產環境物理隔離 specs；SHA-256 防篡改規格版本快照；自動化規格測試器（`SpecTestRunner`）。 | `core/sandbox.ts`<br>`core/types.ts` (`AuthDefinition`)<br>`core/test_runner.ts` (`SpecTestRunner`) |
 | **`v1.3.0`** | 2026-09 | **三合一協定與自動修復結晶**<br>全面支援 ConnectRPC（Connect / gRPC-Web / gRPC 5-byte Framing）；AI 自動容錯對齊（`AutoRepairer` 大小寫與轉型修復）；快照持久化（`.jit/schemas.json` 重啟即 0ms）；雙向推斷；多版本聯集共存。 | `core/connect_adapter.ts`<br>`core/auto_repair.ts`<br>`core/schema_store.ts`<br>`core/observer.ts` (Multi-version) |
 | **`v1.4.0`** | 2026-09 | **企業級 Master Hub、數位孿生與多角色協同**<br>Hugging Face Spaces 部署支援；Master 管理者防暴力登入；Upstream SSRF 防禦代理；多租戶滑動窗口 429 限流；LINE 控制中心結合 TypeSafe Jev 三維指標（重要性/急迫性/危險性）工單派發；Smart Mock Server、Mock Client 與 Proxy Recorder 數位孿生。 | `core/master_auth.ts`<br>`core/upstream_client.ts`<br>`core/rate_limiter.ts`<br>`core/line_service.ts`<br>`core/mock_server.ts`<br>`core/proxy_recorder.ts` |
 | **`v1.4.1`** | 2026-09 | **部署轉接器、宣告式轉發與外掛生態中樞**<br>GitHub/Cloudflare Pages 離線包導出器；OpenAPI 3.0.3 導出；Cloudflare Worker / Firebase 轉接器；LIFF / Relay 專案腳手架；Plugin 架構（Google Sheets, Notion, Upstash, Discord, Telegram, Slack, Clerk, Firebase）；宣告式 `## Notify`；靜態資安審計（`npx jit-api audit`）。 | `core/plugin.ts`<br>`adapters/*`<br>`plugins/*`<br>`core/jit_engine.ts` (`dispatchDeclarativeNotify`)<br>`plugins/guard_spec_linter.ts` |
 | **`v1.4.2`** | 2026-09 | **外掛生態擴充、試算表資料庫、靜態資安稽核**<br>Google Sheets 試算表資料庫 (No-Code CMS)；Notion / Upstash Redis 儲存；Discord / Telegram / Slack 全通路告警轉發；Firebase / Clerk 認證；Prompt Injection 阻斷與台灣個資脫敏；靜態資安 SAST 稽核 (`npx jit-api audit`)；Agent Master Guide。 | `plugins/store_googlesheets.ts`<br>`plugins/channel_*`<br>`plugins/guard_safety.ts`<br>`plugins/guard_spec_linter.ts`<br>`.agent/skills/jit-protocol/` |
+| **`v1.4.3`** | 2026-09 | **企業級可觀測性、細粒度 RBAC、沙盒深度硬化與 Redis 防投毒 (Hardening)**<br>Prometheus `/metrics` 匯出端點 (P50/P90/P99 延遲直方圖)；OpenTelemetry W3C TraceContext 分散式追蹤；HS256/RS256 加密驗簽與 JTI 黑名單；Action 級別通配符 RBAC；Node.js VM 沙盒原型硬隔離 (Null-Prototype / Realm JSON Deserialization / 嚴格模式禁用 this) 與 SEC-006 混淆逃逸檢測；`SchemaStore` 與 `SignedStorageAdapter` 密碼學 HMAC-SHA256 簽名防止全叢集合約投毒 (Anti-Poisoning)。 | `plugins/observability_prometheus.ts`<br>`plugins/observability_opentelemetry.ts`<br>`plugins/auth_rbac_jwt.ts`<br>`core/md_parser.ts` (Harden Sandbox)<br>`plugins/guard_spec_linter.ts` (SEC-006 De-obfuscation)<br>`core/schema_store.ts`<br>`core/signed_storage.ts` |
+
+---
+
+## 6. 資安防護準則與安全發布最佳實踐 (Security Guidelines & Guardrails)
+
+為確保微服務在真實網路環境與分散式叢集下的絕對安全，AI Agent 在產生規格、編寫外掛與建置系統時，必須遵循以下資安守則：
+
+### 1. Markdown 規格安全撰寫原則
+* **敏感端點強制驗證**：若 API 路由涉及敏感行為（如 `admin`、`delete`、`pay`、`refund`、`config`、`withdraw`），必須在規格中定義 `## Auth` 區塊，切勿開放匿名存取。
+* **全域限流守則**：所有公開對外路由建議配置 `## RateLimit`（例如 `max: 60, window: 60s`），杜絕惡意 DoS 與 LLM Token 成本耗盡攻擊。
+* **機敏資訊隔離**：規格中禁止硬編碼真實 API 金鑰、密碼或真實個資（PII）；範例資料必須使用 `alice@example.com` 或脫敏字串。
+
+### 2. 靜態資安審查與發布前自檢 (SAST Audit)
+Agent 在提交變更或執行發布前，**必須執行資安審計指令**：
+```bash
+npx jit-api audit       # 靜態掃描 specs/ 內所有 Markdown 規格的潛在資安漏洞
+npx jit-api lint-spec   # 同義別名，適合 CI/CD Pipeline 阻斷合流
+```
+審查規則包含：
+- **`SEC-001`**：硬編碼金鑰、JWT 與雲端 Token 洩漏檢測。
+- **`SEC-002`**：SSRF 防護（全面封鎖 `127.0.0.0/8`、`169.254.169.254` 雲端 Metadata、CGNAT、IPv6 本地網段）。
+- **`SEC-003`**：未受保護的敏感端點（Missing `## Auth`）。
+- **`SEC-004`**：未配置限流的路由（Missing `## RateLimit`）。
+- **`SEC-005`**：真實個資（身分證字號、信用卡號、手機號碼）。
+- **`SEC-006`**：危險底層呼叫、動態混淆字串（`'child_' + 'process'`）、原型攀爬（`__proto__`, `constructor`）與動態解碼（`atob`）攻擊。
+
+### 3. 外掛與快取防投毒防禦 (Anti-Poisoning & Hardening)
+* **分散式快取簽名**：使用 Upstash Redis 或多節點快取時，請設定 `signingSecret` 或環境變數 `JIT_STORAGE_SIGNING_SECRET`。系統將自動透過 `SignedStorageAdapter` 注入 HMAC-SHA256 簽名，防止 Redis 內容遭惡意竄改導致全叢集合約中毒。
+* **時序攻擊防禦 (Timing-Safe Equality)**：所有 Webhook（LINE、GitHub、自訂 HMAC）簽名比對一律採用 `crypto.timingSafeEqual` 常數時間運算，杜絕計時側信道攻擊。
+* **主動式防護網**：啟用 `createSafetyGuardPlugin()`，其 `beforeRouteExecution` 生命週期攔截器會自動於請求前置階段阻斷 Prompt Injection / Jailbreak 攻擊，並自動脫敏敏感個資。
+* **生產環境隔離**：生產環境務必宣告 `NODE_ENV=production`，以確保第三方認證外掛（Clerk、Firebase）之測試用 Mock Token 無法在正式環境中被惡意繞過。

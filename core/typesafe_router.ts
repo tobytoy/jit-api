@@ -75,9 +75,14 @@ export class TypeSafeRouter {
    * Validate authentication credentials against route definition
    */
   public pluginManager?: any;
+  public engine?: any;
 
   public setPluginManager(pluginManager: any): void {
     this.pluginManager = pluginManager;
+  }
+
+  public setEngine(engine: any): void {
+    this.engine = engine;
   }
 
   public static async validateAuth(
@@ -179,6 +184,14 @@ export class TypeSafeRouter {
         engineUsed: 'needle',
         headers,
       };
+      if (this.engine) {
+        Object.defineProperty(context, 'engine', {
+          value: this.engine,
+          enumerable: false,
+          writable: true,
+          configurable: true,
+        });
+      }
 
       // Validate authentication before handler execution
       await TypeSafeRouter.validateAuth(routeDef, headers, this.pluginManager);
@@ -279,6 +292,14 @@ export class TypeSafeRouter {
       engineUsed: 'typesafe',
       headers,
     };
+    if (this.engine) {
+      Object.defineProperty(context, 'engine', {
+        value: this.engine,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+    }
 
     // 7. Validate authentication before handler execution
     await TypeSafeRouter.validateAuth(routeDef, headers, this.pluginManager);

@@ -34,3 +34,10 @@ export * from './observability_opentelemetry.js';
 
 // Advanced Auth & Fine-Grained RBAC Plugins
 export * from './auth_rbac_jwt.js';
+
+// Edge Native Storage Plugins (Cloudflare KV & D1)
+export * from './store_cloudflare_kv.js';
+export * from './store_cloudflare_d1.js';
+
+// Geo-Spatial & Grid Perception Cache Plugin
+export * from './plugin_geo_spatial.js';

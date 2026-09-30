@@ -29,6 +29,8 @@ function getPackageVersion(): string {
 }
 
 export class MCPAdapter {
+  private static activeServers = new Set<McpServer>();
+
   /**
    * Dynamically build a Zod Schema shape from ParsedMDFields
    */
@@ -115,7 +117,125 @@ export class MCPAdapter {
       });
     }
 
+    // Register Resources from mdLoader
+    const resources = mdLoader.getResources();
+    for (const res of resources) {
+      try {
+        mcpServer.resource(
+          res.name,
+          res.uri,
+          {
+            description: res.description,
+            mimeType: res.mimeType,
+          },
+          async (uri) => {
+            let data: any = res.description;
+            if (res.logicCode) {
+              try {
+                const fn = new Function(res.logicCode);
+                data = await fn();
+              } catch (e: any) {
+                data = { error: `Failed to evaluate resource: ${e.message}` };
+              }
+            }
+            const textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+            return {
+              contents: [
+                {
+                  uri: uri.href,
+                  text: textContent,
+                  mimeType: res.mimeType,
+                },
+              ],
+            };
+          }
+        );
+      } catch (err: any) {
+        console.warn(`[MCPAdapter] Resource registration note for '${res.uri}':`, err.message);
+      }
+    }
+
+    // Register Prompts from mdLoader
+    const prompts = mdLoader.getPrompts();
+    for (const prompt of prompts) {
+      try {
+        const promptArgsShape: Record<string, z.ZodTypeAny> = {};
+        for (const arg of prompt.arguments) {
+          let argZod = z.string().describe(arg.description || arg.name);
+          if (!arg.required) {
+            argZod = argZod.optional() as any;
+          }
+          promptArgsShape[arg.name] = argZod;
+        }
+
+        mcpServer.prompt(
+          prompt.name,
+          prompt.description,
+          promptArgsShape,
+          async (args: Record<string, any>) => {
+            let rendered = prompt.template;
+            for (const [k, v] of Object.entries(args || {})) {
+              rendered = rendered.replace(new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, 'g'), String(v));
+            }
+            return {
+              messages: [
+                {
+                  role: 'user',
+                  content: {
+                    type: 'text',
+                    text: rendered,
+                  },
+                },
+              ],
+            };
+          }
+        );
+      } catch (err: any) {
+        console.warn(`[MCPAdapter] Prompt registration note for '${prompt.name}':`, err.message);
+      }
+    }
+
+    this.activeServers.add(mcpServer);
     return mcpServer;
+  }
+
+  /**
+   * Broadcast a resource update notification to all active MCP client sessions
+   */
+  public static broadcastResourceUpdated(resourceUri: string, updatedData?: any): void {
+    for (const server of this.activeServers) {
+      try {
+        if (typeof (server as any).server?.notification === 'function') {
+          (server as any).server.notification({
+            method: 'notifications/resources/updated',
+            params: { uri: resourceUri, data: updatedData },
+          });
+        }
+      } catch {}
+    }
+  }
+
+  /**
+   * Broadcast an alert or logging message to all active MCP client sessions
+   */
+  public static broadcastAlert(
+    level: 'info' | 'warning' | 'critical',
+    message: string,
+    metadata?: Record<string, any>
+  ): void {
+    const mcpLevel = level === 'critical' ? 'error' : level;
+    for (const server of this.activeServers) {
+      try {
+        server.sendLoggingMessage({
+          level: mcpLevel,
+          data: {
+            message,
+            timestamp: Date.now(),
+            ...metadata,
+          },
+        });
+      } catch {}
+    }
   }
 
   /**

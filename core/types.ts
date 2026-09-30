@@ -119,6 +119,8 @@ export interface RouteDefinition {
   upstream?: UpstreamDefinition;
   rateLimit?: RateLimitDefinition;
   notify?: NotifyDefinition;
+  composition?: CompositionDefinition;
+  synonymMap?: Record<string, string>;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
   enumFields?: Record<string, Record<string, string>>;
@@ -159,6 +161,16 @@ export interface SchemaSnapshot {
   keyId?: string;
 }
 
+export interface UpstreamRetryPolicy {
+  maxRetries: number;
+  backoffMs?: number;
+}
+
+export interface UpstreamCircuitBreakerPolicy {
+  failureThreshold: number;
+  openDurationMs: number;
+}
+
 export interface UpstreamDefinition {
   targetUrl: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -166,6 +178,41 @@ export interface UpstreamDefinition {
   secretRef?: string;
   cacheTtlSeconds?: number;
   timeoutMs?: number;
+  retry?: UpstreamRetryPolicy;
+  circuitBreaker?: UpstreamCircuitBreakerPolicy;
+  fallbackMock?: any;
+}
+
+export interface ResourceDefinition {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+  handler: (uri: string, ctx?: JITRequestContext) => Promise<any> | any;
+}
+
+export interface PromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+export interface PromptDefinition {
+  name: string;
+  description?: string;
+  arguments?: PromptArgument[];
+  template: string;
+  handler?: (args: Record<string, string>, ctx?: JITRequestContext) => Promise<string> | string;
+}
+
+export interface SubRouteCall {
+  route: string;
+  payloadMapping?: Record<string, any>;
+}
+
+export interface CompositionDefinition {
+  parallel?: Record<string, SubRouteCall>;
+  postProcessCode?: string;
 }
 
 export interface RateLimitDefinition {
@@ -243,9 +290,13 @@ export interface JITRequestContext {
     method?: string;
     headers?: Record<string, string>;
     body?: any;
+    variables?: Record<string, any>;
     secretRef?: string;
     cacheTtlSeconds?: number;
     timeoutMs?: number;
+    retry?: UpstreamRetryPolicy;
+    circuitBreaker?: UpstreamCircuitBreakerPolicy;
+    fallbackMock?: any;
   }) => Promise<T>;
 }
 

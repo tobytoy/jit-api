@@ -46,9 +46,10 @@ export class FallbackHandler {
     // 1. Notify drift
     this.onDriftDetected(route, validationError, rawPayload);
 
-    // 2. Fetch last known schema to guide auto-repair
+    // 2. Fetch last known schema and route synonym map to guide auto-repair
     const lastSchema = this.observer.getFrozenSchema(route);
-    const repairResult = this.autoRepairer.repair(rawPayload, lastSchema?.fields);
+    const routeDef = this.router.getRoute(route);
+    const repairResult = this.autoRepairer.repair(rawPayload, lastSchema?.fields, routeDef?.synonymMap);
     const effectivePayload = repairResult.repaired ? repairResult.payload : rawPayload;
 
     if (repairResult.repaired) {

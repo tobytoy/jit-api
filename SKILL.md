@@ -65,15 +65,18 @@ User wants to buy, purchase, checkout or order items and products
 - item: string (購買商品名稱)
 - amount: number (結帳金額，正整數)
 - customerId: string (會員編號)
-- paymentMethod: enum (付款方式)
+- paymentMethod: enum (付款方式) [同義詞: 刷卡, 信用卡 -> CREDIT_CARD; 行動支付, LINE -> LINE_PAY]
   - CREDIT_CARD: 信用卡
   - LINE_PAY: 行動支付
   - BANK_TRANSFER: 銀行轉帳
 
 ## Upstream
-- Target: https://payment-service.internal/api/charge
+- Target: https://payment-service.internal/api/charge/{customerId}
 - Method: POST
 - Timeout: 5000
+- Retry: 3 max, backoff=exponential
+- CircuitBreaker: failures=3, timeout=5000
+- FallbackMock: {"status": "DEGRADED", "fallback": true}
 
 ## Notify
 - Target: ${LINE_ALERT_GROUP_ID}
@@ -111,6 +114,44 @@ return {
   timestamp: new Date().toISOString()
 };
 ```
+```
+
+#### 2.2 規格組合編排器 (`## Compose`) 範例
+```markdown
+# API: get_transport_context
+Stage: prod
+
+## Compose
+- Parallel:
+    - parking: call(get_parking, { lat: payload.latitude, lon: payload.longitude })
+    - incidents: call(get_incidents, { lat: payload.latitude, lon: payload.longitude })
+
+## Fields
+- latitude: number (緯度)
+- longitude: number (經度)
+```
+
+#### 2.3 全方位 MCP 資源與提示詞規格 (`.resource.md` / `.prompt.md`)
+```markdown
+# Resource: system://database-status
+Name: Database Cluster Status
+Description: Real-time health metrics of primary storage cluster
+MimeType: application/json
+
+{"status": "HEALTHY", "activeConnections": 42, "replicationLagMs": 1.2}
+```
+
+```markdown
+# Prompt: analyze_order_risk
+Description: Evaluate order fraud and credit risk with structured indicators
+
+## Arguments
+- orderId: string (Order ID to analyze)
+- userRiskScore: number (User behavioral risk score 0-100)
+
+## Template
+- user: 請針對訂單 {orderId}（風險分數: {userRiskScore}）進行詐欺防護與風險評估。
+- assistant: 我將依據歷史風控模型與行為特徵進行即時核對。
 ```
 
 ---
@@ -184,6 +225,17 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
   - 階層化 Spans：`jit.request`（根請求）、`jit.route`（路由匹配）、`jit.logic_execution`（沙盒邏輯）、`jit.upstream_fetch`（上游代理）。
   - 支援 `InMemorySpanExporter`、`ConsoleSpanExporter` 與自訂 OTLP 匯出。
 
+### 5. 邊緣運算儲存與地理空間感知 (Edge Storage & Geo-Spatial Plugins)
+- `store-cloudflare-kv` (`CloudflareKVAdapter` / `createCloudflareKVPlugin`)：
+  - 支援原生 Cloudflare Worker 綁定（`env.MY_KV`）與遠端 REST API 存取。
+  - 內建 TTL、命名空間隔離與記憶體保底（Offline Fallback），相容 `SignedStorageAdapter` 密碼學防投毒保護。
+- `store-cloudflare-d1` (`CloudflareD1Adapter` / `createCloudflareD1Plugin`)：
+  - 支援 Cloudflare D1 邊緣 SQLite 關聯資料庫，具備自動建表與本機記憶體備份機制。
+- `plugin-geo-spatial` (`GeoSpatialPlugin` / `createGeoSpatialPlugin`)：
+  - 純 JS 零 C++ 依賴空間計算工具，相容 Node.js、Cloudflare Workers、Deno 與 Bun。
+  - 支援標準 Base32 **Geohash 編解碼** (`encodeGeohash`)、空間經緯度離散網格歸一化 (`getSpatialGridId`)、經緯度精度吸附 (`snapCoordinate`) 與球面大圓距離計算 (`haversineDistanceMeters`)。
+  - 於 `context.geo` 自動注入空間計算公用函式供沙盒邏輯及下游調用。
+
 ---
 
 ## 5. 歷代版本演進史 (Version History & Tag Matrix)
@@ -192,7 +244,9 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
 
 | 版本 Tag | 發布日期 | 核心升級與解決痛點 | 關鍵新增模組 / 功能 |
 | :--- | :--- | :--- | :--- |
-| **`v1.1.1`** | 2026-09 | **修復與穩定性加固**<br>解決 MCPAdapter 在生產環境的 stage 洩漏、伺服器連接埠碰撞自動重試、生產環境關閉 Terminal、Rollback 孤兒檔案隔離。 | `core/mcp_adapter.ts`<br>連接埠重試邏輯<br>Rollback 簽名校驗 |
+| **`v1.5.0`** | 2026-09 | **全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器**<br>規格檔 `# Resource: <uri>` 與 `# Prompt: <name>` 自動解析；MCP 即時 SSE/Stdio 資源異動通知 (`broadcastResourceUpdated`) 與系統警報 (`broadcastAlert`)；Cloudflare Workers KV 與 D1 邊緣儲存外掛；純 JS 地理空間外掛 (Geohash、Haversine、網格分桶歸一化)；上游三態熔斷器 (`CLOSED`/`OPEN`/`HALF_OPEN`)、指數退避重試、URL 模板插值與保底 Mock；列舉同義詞口語別名自動自癒轉換 (`[同義詞: ...]`)；多規格平行宣告式聚合編排器 (`## Compose`)。 | `core/mcp_adapter.ts`<br>`plugins/store_cloudflare_kv.ts`<br>`plugins/store_cloudflare_d1.ts`<br>`plugins/plugin_geo_spatial.ts`<br>`core/upstream_client.ts`<br>`core/auto_repair.ts`<br>`core/md_parser.ts` (Compose & Synonyms) |
+| **`v1.4.3`** | 2026-09 | **企業級可觀測性、細粒度 RBAC、沙盒深度硬化與 Redis 防投毒 (Hardening)**<br>Prometheus `/metrics` 匯出端點 (P50/P90/P99 延遲直方圖)；OpenTelemetry W3C TraceContext 分散式追蹤；HS256/RS256 加密驗簽與 JTI 黑名單；Action 級別通配符 RBAC；Node.js VM 沙盒原型硬隔離 (Null-Prototype / Realm JSON Deserialization / 嚴格模式禁用 this) 與 SEC-006 混淆逃逸檢測；`SchemaStore` 與 `SignedStorageAdapter` 密碼學 HMAC-SHA256 簽名防止全叢集合約投毒 (Anti-Poisoning)。 | `plugins/observability_prometheus.ts`<br>`plugins/observability_opentelemetry.ts`<br>`plugins/auth_rbac_jwt.ts`<br>`core/md_parser.ts` (Harden Sandbox)<br>`plugins/guard_spec_linter.ts` (SEC-006 De-obfuscation)<br>`core/schema_store.ts`<br>`core/signed_storage.ts` |
+| **`v1.4.2`** | 2026-09 | **外掛生態擴充、試算表資料庫、靜態資安稽核**<br>Google Sheets 試算表資料庫 (No-Code CMS)；Notion / Upstash Redis 儲存；Discord / Telegram / Slack 全通路告警轉發；Firebase / Clerk 認證；Prompt Injection 阻斷與台灣個資脫敏；靜態資安 SAST 稽核 (`npx jit-api audit`)；Agent Master Guide。 | `plugins/store_googlesheets.ts`<br>`plugins/channel_*`<br>`plugins/guard_safety.ts`<br>`plugins/guard_spec_linter.ts`<br>`.agent/skills/jit-protocol/` |
 | **`v1.2.0`** | 2026-09 | **沙盒隔離與安全性防禦**<br>引進 Node.js VM 沙盒執行使用者邏輯，杜絕主行程崩潰；引入 `## Auth` 規格層級驗證；生產環境物理隔離 specs；SHA-256 防篡改規格版本快照；自動化規格測試器（`SpecTestRunner`）。 | `core/sandbox.ts`<br>`core/types.ts` (`AuthDefinition`)<br>`core/test_runner.ts` (`SpecTestRunner`) |
 | **`v1.3.0`** | 2026-09 | **三合一協定與自動修復結晶**<br>全面支援 ConnectRPC（Connect / gRPC-Web / gRPC 5-byte Framing）；AI 自動容錯對齊（`AutoRepairer` 大小寫與轉型修復）；快照持久化（`.jit/schemas.json` 重啟即 0ms）；雙向推斷；多版本聯集共存。 | `core/connect_adapter.ts`<br>`core/auto_repair.ts`<br>`core/schema_store.ts`<br>`core/observer.ts` (Multi-version) |
 | **`v1.4.0`** | 2026-09 | **企業級 Master Hub、數位孿生與多角色協同**<br>Hugging Face Spaces 部署支援；Master 管理者防暴力登入；Upstream SSRF 防禦代理；多租戶滑動窗口 429 限流；LINE 控制中心結合 TypeSafe Jev 三維指標（重要性/急迫性/危險性）工單派發；Smart Mock Server、Mock Client 與 Proxy Recorder 數位孿生。 | `core/master_auth.ts`<br>`core/upstream_client.ts`<br>`core/rate_limiter.ts`<br>`core/line_service.ts`<br>`core/mock_server.ts`<br>`core/proxy_recorder.ts` |

@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import { JITEngine } from './jit_engine.js';
-import { MDParser, ParsedMDSpec } from './md_parser.js';
+import { MDParser, ParsedMDSpec, ParsedMDResource, ParsedMDPrompt } from './md_parser.js';
 
 export interface SpecInfo {
   filename: string;
@@ -34,6 +34,8 @@ export class MDLoader {
   private specsDir: string;
   private releasesDir: string;
   private inlineSpecs: Map<string, string> = new Map();
+  private loadedResources: Map<string, ParsedMDResource> = new Map();
+  private loadedPrompts: Map<string, ParsedMDPrompt> = new Map();
 
   constructor(specsDir?: string, releasesDir?: string, inlineSpecs?: Record<string, string>) {
     const defaultDir =
@@ -137,8 +139,16 @@ export class MDLoader {
     fs.writeFileSync(fullPath, content, 'utf-8');
   }
 
+  public getResources(): ParsedMDResource[] {
+    return Array.from(this.loadedResources.values());
+  }
+
+  public getPrompts(): ParsedMDPrompt[] {
+    return Array.from(this.loadedPrompts.values());
+  }
+
   /**
-   * Load and register all *.api.md files into the JITEngine
+   * Load and register all *.api.md files into the JITEngine, and collect resources and prompts
    */
   public loadAll(engine: JITEngine, filterStage?: 'all' | 'prod' | 'dev'): ParsedMDSpec[] {
     const loadedSpecs: ParsedMDSpec[] = [];
@@ -147,6 +157,18 @@ export class MDLoader {
     // 1. Load any inline specs first (Workers / serverless mode)
     for (const [file, content] of this.inlineSpecs.entries()) {
       try {
+        const specType = MDParser.detectType(content);
+        if (specType === 'resource') {
+          const res = MDParser.parseResource(content, file);
+          this.loadedResources.set(res.uri, res);
+          continue;
+        }
+        if (specType === 'prompt') {
+          const p = MDParser.parsePrompt(content, file);
+          this.loadedPrompts.set(p.name, p);
+          continue;
+        }
+
         const spec = MDParser.parse(content, file);
         if (filterStage && filterStage !== 'all' && spec.stage !== filterStage) {
           continue;
@@ -172,7 +194,7 @@ export class MDLoader {
 
     let files: string[] = [];
     try {
-      files = fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.md'));
+      files = fs.readdirSync(this.specsDir).filter((f) => f.endsWith('.api.md') || f.endsWith('.resource.md') || f.endsWith('.prompt.md') || f.endsWith('.md'));
     } catch {
       return loadedSpecs;
     }
@@ -180,6 +202,18 @@ export class MDLoader {
       const fullPath = path.join(this.specsDir, file);
       try {
         const content = fs.readFileSync(fullPath, 'utf-8');
+        const specType = MDParser.detectType(content);
+        if (specType === 'resource') {
+          const res = MDParser.parseResource(content, file);
+          this.loadedResources.set(res.uri, res);
+          continue;
+        }
+        if (specType === 'prompt') {
+          const p = MDParser.parsePrompt(content, file);
+          this.loadedPrompts.set(p.name, p);
+          continue;
+        }
+
         const spec = MDParser.parse(content, file);
 
         // In prod mode, ignore dev/draft APIs

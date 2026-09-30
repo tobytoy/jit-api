@@ -4,7 +4,9 @@ export interface AutoRepairOptions {
   enableCaseConversion?: boolean;
   enableTypeCoercion?: boolean;
   enableAliasResolution?: boolean;
+  enableSynonymResolution?: boolean;
   customAliases?: Record<string, string>; // e.g. { uid: 'user_id' }
+  synonymMap?: Record<string, string>; // e.g. { '臺鐵': 'tra', '火車': 'tra' }
 }
 
 export class AutoRepairer {
@@ -15,6 +17,7 @@ export class AutoRepairer {
       enableCaseConversion: options?.enableCaseConversion ?? true,
       enableTypeCoercion: options?.enableTypeCoercion ?? true,
       enableAliasResolution: options?.enableAliasResolution ?? true,
+      enableSynonymResolution: options?.enableSynonymResolution ?? true,
       customAliases: options?.customAliases ?? {
         uid: 'user_id',
         id: 'order_id',
@@ -23,6 +26,7 @@ export class AutoRepairer {
         desc: 'description',
         msg: 'message',
       },
+      synonymMap: options?.synonymMap ?? {},
     };
   }
 
@@ -34,11 +38,12 @@ export class AutoRepairer {
   }
 
   /**
-   * Attempt to automatically repair a drifted payload against expected schema fields
+   * Attempt to automatically repair a drifted payload against expected schema fields and synonym maps
    */
   public repair(
     rawPayload: Record<string, unknown>,
-    expectedFields?: Record<string, IRField>
+    expectedFields?: Record<string, IRField>,
+    routeSynonyms?: Record<string, string>
   ): AutoRepairResult {
     if (!expectedFields || Object.keys(expectedFields).length === 0) {
       return {
@@ -156,6 +161,36 @@ export class AutoRepairer {
               to: arr,
               reason: `Coerced comma-separated string to array`,
             });
+          }
+        }
+      }
+    }
+
+    // Phase 3: Synonym / Value Normalization (e.g. '臺鐵' -> 'tra', '火車' -> 'tra')
+    if (this.options.enableSynonymResolution) {
+      const mergedSynonyms = { ...this.options.synonymMap, ...(routeSynonyms || {}) };
+      const synonymKeys = Object.keys(mergedSynonyms);
+      if (synonymKeys.length > 0) {
+        for (const [key, val] of Object.entries(repairedPayload)) {
+          if (typeof val === 'string') {
+            const trimmed = val.trim();
+            const lower = trimmed.toLowerCase();
+            const matchedKey = synonymKeys.find(
+              (s) => s.toLowerCase() === lower || s === trimmed
+            );
+            if (matchedKey) {
+              const canonical = mergedSynonyms[matchedKey];
+              if (canonical !== val) {
+                repairedPayload[key] = canonical;
+                modifications.push({
+                  field: key,
+                  type: 'alias',
+                  from: val,
+                  to: canonical,
+                  reason: `Resolved synonym alias for '${key}' from '${val}' to '${canonical}'`,
+                });
+              }
+            }
           }
         }
       }

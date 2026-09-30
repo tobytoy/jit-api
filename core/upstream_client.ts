@@ -12,6 +12,34 @@ export interface UpstreamFetchOptions {
   cacheTtlSeconds?: number;
   timeoutMs?: number;
   queryParams?: Record<string, string | number>;
+  variables?: Record<string, any>;
+  retry?: {
+    maxRetries: number;
+    backoffMs?: number;
+  };
+  circuitBreaker?: {
+    failureThreshold: number;
+    openDurationMs: number;
+  };
+  fallbackMock?: any;
+}
+
+export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+export interface CircuitBreakerState {
+  state: CircuitState;
+  failures: number;
+  lastFailureTime: number;
+  openUntil: number;
+}
+
+export class CircuitBreakerOpenError extends Error {
+  public statusCode = 503;
+  constructor(endpoint: string, openUntil: number) {
+    const remainingSeconds = Math.max(0, Math.ceil((openUntil - Date.now()) / 1000));
+    super(`[CircuitBreaker:OPEN] Upstream endpoint '${endpoint}' is open. Retry in ${remainingSeconds}s.`);
+    this.name = 'CircuitBreakerOpenError';
+  }
 }
 
 export interface CachedResponse {
@@ -34,6 +62,7 @@ export class UpstreamClient {
   private secretsFile: string;
   private localSecrets: Map<string, string> = new Map();
   private cache: Map<string, CachedResponse> = new Map();
+  private circuitBreakers: Map<string, CircuitBreakerState> = new Map();
 
   constructor(storageDirOrFile?: string) {
     if (storageDirOrFile && storageDirOrFile.endsWith('.json')) {
@@ -225,22 +254,82 @@ export class UpstreamClient {
   }
 
   /**
-   * Execute safe outbound HTTP fetch with SSRF check, secret injection, and in-memory TTL caching
+   * Interpolate template variables {{key}} and {{env.KEY}} in target URL or headers
+   */
+  public interpolate(template: string, variables?: Record<string, any>): string {
+    if (!template) return template;
+    return template.replace(/\{\{\s*([\w\.\-]+)\s*\}\}/g, (_, key) => {
+      if (key.startsWith('env.')) {
+        const envKey = key.slice(4);
+        return (typeof process !== 'undefined' && process.env?.[envKey]) || '';
+      }
+      if (variables && variables[key] !== undefined) {
+        return String(variables[key]);
+      }
+      return '';
+    });
+  }
+
+  public getCircuitBreakerState(endpoint: string): CircuitBreakerState {
+    const existing = this.circuitBreakers.get(endpoint);
+    if (!existing) {
+      const initial: CircuitBreakerState = { state: 'CLOSED', failures: 0, lastFailureTime: 0, openUntil: 0 };
+      this.circuitBreakers.set(endpoint, initial);
+      return initial;
+    }
+    if (existing.state === 'OPEN' && Date.now() >= existing.openUntil) {
+      existing.state = 'HALF_OPEN';
+    }
+    return existing;
+  }
+
+  public recordSuccess(endpoint: string): void {
+    const cb = this.circuitBreakers.get(endpoint);
+    if (cb) {
+      cb.state = 'CLOSED';
+      cb.failures = 0;
+    }
+  }
+
+  public recordFailure(endpoint: string, threshold = 3, openDurationMs = 60000): void {
+    const cb = this.getCircuitBreakerState(endpoint);
+    cb.failures += 1;
+    cb.lastFailureTime = Date.now();
+    if (cb.failures >= threshold) {
+      cb.state = 'OPEN';
+      cb.openUntil = Date.now() + openDurationMs;
+    }
+  }
+
+  public resetCircuitBreaker(endpoint?: string): void {
+    if (endpoint) {
+      this.circuitBreakers.delete(endpoint);
+    } else {
+      this.circuitBreakers.clear();
+    }
+  }
+
+  /**
+   * Execute safe outbound HTTP fetch with SSRF check, secret injection, Circuit Breaker, Retries, and TTL caching
    */
   public async fetch<T = any>(targetUrl: string, options: UpstreamFetchOptions = {}): Promise<{
     data: T;
     fromCache: boolean;
     cachedAgeSeconds?: number;
     status: number;
+    fromFallbackMock?: boolean;
   }> {
+    // 0. Interpolate URL if variables provided
+    const resolvedUrl = options.variables ? this.interpolate(targetUrl, options.variables) : targetUrl;
+
     // 1. SSRF check
-    const safety = this.isSafeUrl(targetUrl);
+    const safety = this.isSafeUrl(resolvedUrl);
     if (!safety.safe) {
       throw new Error(`[SSRF 防護阻擋] ${safety.reason}`);
     }
 
     // 2. Construct final URL with query params
-    const parsedUrl = new url.URL(targetUrl);
+    const parsedUrl = new url.URL(resolvedUrl);
     if (options.queryParams) {
       for (const [k, v] of Object.entries(options.queryParams)) {
         parsedUrl.searchParams.set(k, String(v));
@@ -248,8 +337,25 @@ export class UpstreamClient {
     }
     const finalUrl = parsedUrl.toString();
     const method = (options.method || 'GET').toUpperCase();
+    const endpointKey = parsedUrl.origin;
 
-    // 3. Check in-memory cache
+    // 3. Circuit Breaker check
+    if (options.circuitBreaker) {
+      const cbState = this.getCircuitBreakerState(endpointKey);
+      if (cbState.state === 'OPEN') {
+        if (options.fallbackMock !== undefined) {
+          return {
+            data: options.fallbackMock as T,
+            fromCache: false,
+            status: 200,
+            fromFallbackMock: true,
+          };
+        }
+        throw new CircuitBreakerOpenError(endpointKey, cbState.openUntil);
+      }
+    }
+
+    // 4. Check in-memory cache
     const cacheKey = `${method}:${finalUrl}:${JSON.stringify(options.body || {})}`;
     const now = Date.now();
     const cached = this.cache.get(cacheKey);
@@ -264,7 +370,7 @@ export class UpstreamClient {
       };
     }
 
-    // 4. Resolve Upstream Secret
+    // 5. Resolve Upstream Secret
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'User-Agent': 'JIT-Protocol-Synthesis/2.0 Upstream-Proxy',
@@ -280,65 +386,104 @@ export class UpstreamClient {
       }
     }
 
-    // 5. Outbound fetch with timeout
+    // 6. Outbound fetch with Retries & Circuit Breaker
     const timeoutMs = options.timeoutMs || 10000;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const maxRetries = options.retry?.maxRetries ?? 0;
+    const backoffMs = options.retry?.backoffMs ?? 300;
 
-    try {
-      const fetchOpts: RequestInit = {
-        method,
-        headers,
-        signal: controller.signal,
-      };
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-      if (options.body && method !== 'GET' && method !== 'HEAD') {
-        if (typeof options.body === 'object') {
-          headers['Content-Type'] = headers['Content-Type'] || 'application/json';
-          fetchOpts.body = JSON.stringify(options.body);
-        } else {
-          fetchOpts.body = String(options.body);
+      try {
+        const fetchOpts: RequestInit = {
+          method,
+          headers,
+          signal: controller.signal,
+        };
+
+        if (options.body && method !== 'GET' && method !== 'HEAD') {
+          if (typeof options.body === 'object') {
+            headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+            fetchOpts.body = JSON.stringify(options.body);
+          } else {
+            fetchOpts.body = String(options.body);
+          }
         }
-      }
 
-      const res = await fetch(finalUrl, fetchOpts);
-      clearTimeout(timer);
+        const res = await fetch(finalUrl, fetchOpts);
+        clearTimeout(timer);
 
-      let data: any;
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        data = await res.text();
-      }
+        let data: any;
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        } else {
+          data = await res.text();
+        }
 
-      if (!res.ok) {
-        throw new Error(`Upstream API 回傳錯誤 HTTP ${res.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
-      }
+        if (!res.ok) {
+          throw new Error(`Upstream API 回傳錯誤 HTTP ${res.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+        }
 
-      // 6. Cache response if TTL > 0
-      const ttlSec = options.cacheTtlSeconds !== undefined ? options.cacheTtlSeconds : 60;
-      if (ttlSec > 0 && method === 'GET') {
-        this.cache.set(cacheKey, {
-          data,
+        // Success - record with Circuit Breaker
+        if (options.circuitBreaker) {
+          this.recordSuccess(endpointKey);
+        }
+
+        // Cache response if TTL > 0
+        const ttlSec = options.cacheTtlSeconds !== undefined ? options.cacheTtlSeconds : 60;
+        if (ttlSec > 0 && method === 'GET') {
+          this.cache.set(cacheKey, {
+            data,
+            status: res.status,
+            headers: {},
+            cachedAt: now,
+            expiresAt: now + ttlSec * 1000,
+          });
+        }
+
+        return {
+          data: data as T,
+          fromCache: false,
           status: res.status,
-          headers: {},
-          cachedAt: now,
-          expiresAt: now + ttlSec * 1000,
-        });
-      }
+        };
+      } catch (err: any) {
+        clearTimeout(timer);
+        const isTimeout = err.name === 'AbortError';
+        const formattedErr = isTimeout
+          ? new Error(`Upstream 請求逾時 (${timeoutMs}ms): ${resolvedUrl}`)
+          : err;
 
-      return {
-        data: data as T,
-        fromCache: false,
-        status: res.status,
-      };
-    } catch (err: any) {
-      clearTimeout(timer);
-      if (err.name === 'AbortError') {
-        throw new Error(`Upstream 請求逾時 (${timeoutMs}ms): ${targetUrl}`);
+        attempt++;
+        if (attempt <= maxRetries) {
+          const delay = backoffMs * Math.pow(2, attempt - 1);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Record failure in Circuit Breaker
+        if (options.circuitBreaker) {
+          this.recordFailure(
+            endpointKey,
+            options.circuitBreaker.failureThreshold,
+            options.circuitBreaker.openDurationMs
+          );
+        }
+
+        // Graceful Fallback Mock if configured
+        if (options.fallbackMock !== undefined) {
+          return {
+            data: options.fallbackMock as T,
+            fromCache: false,
+            status: 200,
+            fromFallbackMock: true,
+          };
+        }
+
+        throw formattedErr;
       }
-      throw err;
     }
   }
 
