@@ -325,6 +325,17 @@ export class TypeSafeRouter {
       context.upstreamFetch = (url, opts) => this.upstreamClient!.fetch(url, opts).then((r) => r.data);
     }
 
+    if (this.engine && (this.engine as any).dataEngine) {
+      const dataEngine = (this.engine as any).dataEngine;
+      const targetStore = routeDef.store?.name || 'analytics';
+      context.db = dataEngine.createSafeContext(targetStore);
+      context.dbx = dataEngine.createSafeContext('dbx');
+    }
+
+    if (this.engine && typeof (this.engine as any).getECPay === 'function') {
+      context.ecpay = (this.engine as any).getECPay();
+    }
+
     if (this.tenantStore) {
       const apiKey = this.extractApiKey(headers);
       if (apiKey) {

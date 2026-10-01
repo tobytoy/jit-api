@@ -109,6 +109,23 @@ export interface NotifyDefinition {
   token?: string;
 }
 
+export interface StoreDefinition {
+  name: string;
+  provider?: 'local_duckdb' | 'sqlite' | 'dbx' | string;
+  target?: string;
+  tunnel?: string;
+  options?: Record<string, any>;
+}
+
+export interface PipelineDefinition {
+  name?: string;
+  store?: string;
+  source?: string;
+  aggregate?: string;
+  transform?: string;
+  cacheTtlMs?: number;
+}
+
 export interface RouteDefinition {
   route: string;
   description: string;
@@ -120,6 +137,8 @@ export interface RouteDefinition {
   rateLimit?: RateLimitDefinition;
   notify?: NotifyDefinition;
   composition?: CompositionDefinition;
+  store?: StoreDefinition;
+  pipeline?: PipelineDefinition;
   synonymMap?: Record<string, string>;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
@@ -286,6 +305,9 @@ export interface JITRequestContext {
   engineUsed?: 'typesafe' | 'needle';
   headers?: Record<string, string | string[] | undefined>;
   tenant?: TenantDefinition;
+  db?: import('../data/types.js').SafeDatabaseContext;
+  dbx?: import('../data/types.js').SafeDatabaseContext;
+  ecpay?: import('../plugins/payment_ecpay.js').ECPayService;
   upstreamFetch?: <T = any>(targetUrl: string, options?: {
     method?: string;
     headers?: Record<string, string>;

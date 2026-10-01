@@ -1063,7 +1063,9 @@ function setupWebTerminal() {
 
 function connectTerminalWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.host}/ws/terminal`;
+  const token = (state.masterAuth && state.masterAuth.token) || localStorage.getItem('jit_master_token') || '';
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+  const wsUrl = `${protocol}//${location.host}/ws/terminal${tokenParam}`;
 
   try {
     termWs = new WebSocket(wsUrl);
@@ -2591,6 +2593,10 @@ async function submitMasterLogin() {
       localStorage.setItem('jit_master_token', data.token);
       hideMasterLoginModal();
       updateAuthUI();
+      if (termWs) {
+        try { termWs.close(); } catch {}
+        connectTerminalWebSocket();
+      }
       alert('🎉 Master 認證成功！已解鎖全域管理與編譯權限。');
       refreshAll();
     } else {
@@ -2616,6 +2622,10 @@ async function logoutMaster() {
   state.masterAuth.role = 'guest';
   localStorage.removeItem('jit_master_token');
   updateAuthUI();
+  if (termWs) {
+    try { termWs.close(); } catch {}
+    connectTerminalWebSocket();
+  }
   alert('已登出 Master 身分，已切換回訪客唯讀模式。');
   refreshAll();
 }

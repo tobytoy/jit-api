@@ -37,6 +37,10 @@ npx jit-api audit
 # 5. 發布規格快照版本 / 線上快速回滾降版
 npx jit-api release 1.0.0 "初次生產穩定發布"
 npx jit-api rollback 1.0.0
+
+# 6. 公網安全穿透 (Cloudflare Tunnel 隨開即用，支援 API、MCP、Streamlit 與綠界 Webhook)
+npx jit-api tunnel 3005
+npx jit-api dev --tunnel
 ```
 
 ### 方式 B：Docker 一鍵運行（針對完全不想裝 Node/Python 的人）

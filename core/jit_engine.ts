@@ -28,9 +28,11 @@ import { TenantStore } from './tenant_store.js';
 import { UnauthorizedError } from './types.js';
 import { PluginManager, JITPlugin } from './plugin.js';
 import { sendLinePush } from '../plugins/channel_line.js';
+import { DataEngine, createDataEngine, createLocalDuckDB, JITDatabaseAdapter } from '../data/index.js';
 import { sendDiscordMessage } from '../plugins/channel_discord.js';
 import { sendTelegramMessage } from '../plugins/channel_telegram.js';
 import { sendSlackMessage } from '../plugins/channel_slack.js';
+import { ECPayService } from '../plugins/payment_ecpay.js';
 
 export interface JITEngineOptions {
   client?: TypeSafeClient;
@@ -63,6 +65,7 @@ export class JITEngine {
   private rateLimiter: RateLimiter;
   private tenantStore?: TenantStore;
   public pluginManager: PluginManager;
+  public dataEngine: DataEngine;
 
   // Multi-version fast-path validator storage: route -> version -> validator
   private fastPathValidators: Map<
@@ -78,6 +81,8 @@ export class JITEngine {
     this.rateLimiter = options?.rateLimiter || new RateLimiter();
     this.tenantStore = options?.tenantStore || new TenantStore();
     this.pluginManager = new PluginManager();
+    this.dataEngine = createDataEngine();
+    this.dataEngine.registerAdapter(createLocalDuckDB({ name: 'analytics' }), true);
 
     this.router = new TypeSafeRouter({
       client,
@@ -592,8 +597,35 @@ export class JITEngine {
   }
 
   public usePlugin(plugin: JITPlugin): this {
-    this.pluginManager.register(plugin);
+    this.pluginManager.register(plugin, { engine: this });
     return this;
+  }
+
+  public use(plugin: JITPlugin): this {
+    return this.usePlugin(plugin);
+  }
+
+  public registerDatabaseAdapter(adapter: JITDatabaseAdapter, isDefault: boolean = false): this {
+    this.dataEngine.registerAdapter(adapter, isDefault);
+    return this;
+  }
+
+  public getDataEngine(): DataEngine {
+    return this.dataEngine;
+  }
+
+  public ecpayService?: ECPayService;
+
+  public setECPay(service: ECPayService): this {
+    this.ecpayService = service;
+    return this;
+  }
+
+  public getECPay(): ECPayService {
+    if (!this.ecpayService) {
+      this.ecpayService = new ECPayService();
+    }
+    return this.ecpayService;
   }
 
   public getPluginManager(): PluginManager {

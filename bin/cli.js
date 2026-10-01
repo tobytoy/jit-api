@@ -11,8 +11,11 @@
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +60,7 @@ const {
   StaticPagesExporter,
   OpenAPIExporter,
   ProjectScaffolder,
+  MasterAuthManager,
 } = coreModules;
 
 const args = process.argv.slice(2);
@@ -77,8 +81,8 @@ if (args.includes('--help') || args.includes('-h') || command === 'help') {
 
 Usage:
   npx jit-api [command] [options]
-
 Commands:
+  tunnel [port|ui]  啟動 Cloudflare Tunnel 公網安全穿透 (例: npx jit-api tunnel 3005 或 npx jit-api tunnel ui)
   dev               啟動開發模式：含 Web Studio、PTY 終端、動態熱重載 (預設, Port: 3005)
   start | prod      啟動生產模式：高效 API Gateway、安全防護 (停用終端、物理隔離規格, Port: 3000)
   mock              啟動智慧 Mock Server：零後端開發，支援 REST 與 ConnectRPC (例: npx jit-api mock)
@@ -95,6 +99,7 @@ Commands:
 Options:
   --port <number>   指定伺服器連接埠 (dev 預設 3005, prod 預設 3000)
   --specs <path>    指定 Markdown API 規格目錄 (預設: ./specs)
+  --tunnel          啟動 dev/prod 時同步開啟 Cloudflare Tunnel 公網穿透
   --out <dir|file>  指定 export 或 scaffold 的輸出路徑 (預設: ./dist-pages 或 ./openapi.json)
   --liff-id <id>    指定 LINE LIFF App ID (for scaffold line-liff)
   --target <url>    指定代理或 Mock Client 的目標伺服器位址
@@ -117,6 +122,64 @@ if (args.includes('--version') || args.includes('-v')) {
 }
 
 const specsDir = path.resolve(process.cwd(), getArg('--specs', process.env.JIT_SPECS_DIR || 'specs'));
+
+// Command: tunnel / share
+if (command === 'tunnel' || command === 'share') {
+  const rawTarget = args[1] && !args[1].startsWith('-') ? args[1] : getArg('--port', '3005');
+  let targetPort = '3005';
+  if (rawTarget === 'ui' || rawTarget === 'streamlit') {
+    targetPort = '8501';
+  } else if (rawTarget === 'api' || rawTarget === 'mcp' || rawTarget === 'server') {
+    targetPort = '3005';
+  } else {
+    targetPort = rawTarget;
+  }
+
+  console.log(`\n🚀 [JIT-API Tunnel] 正在建立 Cloudflare 安全穿透通道 (目標: http://localhost:${targetPort})...\n`);
+
+  const { spawn } = await import('child_process');
+  const cp = spawn('npx', ['--yes', 'cloudflared', 'tunnel', '--url', `http://localhost:${targetPort}`], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  let urlDetected = false;
+  const onData = (data) => {
+    const text = data.toString();
+    const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+    if (match && !urlDetected) {
+      urlDetected = true;
+      const tunnelUrl = match[0];
+      console.log('='.repeat(65));
+      console.log(`✨ Cloudflare Tunnel 公網安全通道已就緒！`);
+      console.log(`🌐 穿透網址:   ${tunnelUrl}`);
+      if (targetPort === '3005') {
+        console.log(`🔌 API Gateway: ${tunnelUrl}/api/jit`);
+        console.log(`🤖 MCP Server:   ${tunnelUrl}/sse`);
+        console.log(`💳 綠界回呼:     ${tunnelUrl}/api/ecpay/callback`);
+        console.log(`📱 支付跳轉中繼: ${tunnelUrl}/api/pay/:orderId`);
+      } else if (targetPort === '8501') {
+        console.log(`📊 Streamlit UI: ${tunnelUrl}`);
+      }
+      console.log('='.repeat(65));
+      console.log('💡 按下 Ctrl+C 即可中斷並安全銷毀通道。\n');
+    }
+  };
+
+  cp.stdout.on('data', onData);
+  cp.stderr.on('data', onData);
+
+  process.on('SIGINT', () => {
+    cp.kill();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    cp.kill();
+    process.exit(0);
+  });
+
+  // Keep process alive
+  await new Promise(() => {});
+}
 
 // Command: test
 if (command === 'test') {
@@ -470,8 +533,51 @@ return {
   );
 }
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Master Auth Manager setup & Tunnel credential auto-protection
+let initialMasterPassword = process.env.MASTER_PASSWORD || '';
+if (args.includes('--tunnel') && !initialMasterPassword) {
+  initialMasterPassword = crypto.randomBytes(8).toString('hex');
+  process.env.MASTER_PASSWORD = initialMasterPassword;
+  console.log('\n🔒 [資安自動防護] 偵測到啟用 --tunnel 穿透但未設定 MASTER_PASSWORD！');
+  console.log(`🔑 已為您生成一次性 Master 密碼: \x1b[33m\x1b[1m${initialMasterPassword}\x1b[0m`);
+  console.log('   (若要固定密碼，可在 .env 中指定 MASTER_PASSWORD=your_password)\n');
+}
+const masterAuth = new MasterAuthManager(initialMasterPassword);
+
 const app = express();
+
+// Security headers (H-2)
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// CORS configuration (L-2)
+app.use(cors());
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: ['text/plain', 'text/markdown'] }));
 
 // Serve frontend dashboard from packageRoot/public unless --headless
@@ -529,6 +635,26 @@ const lineService = new LineService({
   trafficLightManager: engine.getTrafficLightManager(),
 });
 
+// ================= Master 身份驗證與安全保護 =================
+app.get('/api/auth/status', (req, res) => {
+  res.json(masterAuth.getStatus(req));
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  const result = masterAuth.login(req.body?.password || '', ip);
+  if (!result.success) {
+    return res.status(401).json(result);
+  }
+  res.json(result);
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = masterAuth.extractToken(req);
+  if (token) masterAuth.logout(token);
+  res.json({ success: true });
+});
+
 // ================= API Endpoints =================
 app.get('/api/info', (req, res) => {
   let pkgVersion = '1.1.0';
@@ -549,6 +675,7 @@ app.get('/api/info', (req, res) => {
     routesCount: engine.getRoutes().length,
     specsDir: mdLoader.getSpecsDir(),
     stageFilter,
+    auth: masterAuth.getStatus(req),
   });
 });
 
@@ -582,6 +709,32 @@ app.get('/api/jit/status/:route', (req, res) => {
   res.json(engine.getRouteStatus(req.params.route));
 });
 
+// ECPay (綠界金流) Hosted Checkout Relay & QR Code Endpoints
+const ecpayService = engine.getECPay();
+
+app.get('/api/pay/:orderId', (req, res) => {
+  const orderId = req.params.orderId;
+  const html = ecpayService.getRelayOrder(orderId);
+  if (html) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  }
+  const safeOrderId = escapeHtml(orderId);
+  return res.status(404).send(`<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;"><div style="background:#1e293b;padding:32px;border-radius:12px;text-align:center;"><h2>訂單不存在或已過期</h2><p style="color:#94a3b8">訂單編號: ${safeOrderId}</p></div></body></html>`);
+});
+
+app.get('/api/pay/:orderId/qr', async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const paymentUrl = `${ecpayService.baseUrl}/api/pay/${orderId}`;
+    const qr = await ecpayService.generateQrCode(paymentUrl);
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.send(qr.svg);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Coordination & Traffic Light APIs
 app.get('/api/coordination/status', (req, res) => {
   const routes = engine.getRoutes().map((r) => {
@@ -597,7 +750,7 @@ app.get('/api/coordination/status', (req, res) => {
   res.json({ routes, locks });
 });
 
-app.post('/api/coordination/lock', (req, res) => {
+app.post('/api/coordination/lock', masterAuth.requireMaster, (req, res) => {
   const { route, role, reason, ttlMs } = req.body;
   if (!route || !role) {
     return res.status(400).json({ error: 'Missing required field: route and role' });
@@ -614,7 +767,7 @@ app.post('/api/coordination/lock', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/coordination/unlock', (req, res) => {
+app.post('/api/coordination/unlock', masterAuth.requireMaster, (req, res) => {
   const { route, role } = req.body;
   if (!route) {
     return res.status(400).json({ error: 'Missing required field: route' });
@@ -628,7 +781,7 @@ app.get('/api/line/config', (req, res) => {
   res.json(lineService.getConfig());
 });
 
-app.post('/api/line/config', (req, res) => {
+app.post('/api/line/config', masterAuth.requireMaster, (req, res) => {
   const updated = lineService.saveConfig(req.body);
   res.json({ success: true, config: updated });
 });
@@ -637,7 +790,7 @@ app.get('/api/line/whitelist', (req, res) => {
   res.json(ticketStore.getWhitelist());
 });
 
-app.post('/api/line/whitelist', (req, res) => {
+app.post('/api/line/whitelist', masterAuth.requireMaster, (req, res) => {
   const { id, name, role } = req.body;
   if (!id || !name) return res.status(400).json({ error: '缺少 id 或 name 欄位' });
   const user = ticketStore.addWhitelistUser({
@@ -758,7 +911,7 @@ if (!isProd) {
     }
   });
 
-  app.post('/api/specs/:file', (req, res) => {
+  app.post('/api/specs/:file', masterAuth.requireMaster, (req, res) => {
     try {
       const content = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
       mdLoader.saveSpec(req.params.file, content);
@@ -768,7 +921,7 @@ if (!isProd) {
     }
   });
 
-  app.post('/api/specs/reload', (req, res) => {
+  app.post('/api/specs/reload', masterAuth.requireMaster, (req, res) => {
     try {
       const reloaded = mdLoader.reload(engine, stageFilter);
       res.json({ success: true, count: reloaded.length, routes: reloaded.map((s) => s.route) });
@@ -859,7 +1012,24 @@ let server;
 function startServer(portToTry, maxRetries = 10) {
   const currentServer = http.createServer(app);
   if (!isProd) {
-    new TerminalServer(currentServer, '/ws/terminal');
+    new TerminalServer(currentServer, '/ws/terminal', (req) => {
+      if (masterAuth.isAuthEnabled()) {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          const token =
+            url.searchParams.get('token') ||
+            req.headers['x-master-token'] ||
+            req.headers['authorization']?.replace(/^Bearer\s+/i, '');
+          return masterAuth.validateToken(token);
+        } catch {
+          return false;
+        }
+      }
+      if (args.includes('--tunnel')) {
+        return false;
+      }
+      return true;
+    });
   }
 
   currentServer.once('error', (err) => {
@@ -909,6 +1079,36 @@ function startServer(portToTry, maxRetries = 10) {
       console.log(`   - ⚡ ConnectRPC 協定入口:   http://localhost:${PORT}/jit.v1.JITService/Execute`);
     }
     console.log('='.repeat(70));
+
+    if (args.includes('--tunnel')) {
+      import('child_process').then(({ spawn }) => {
+        const cp = spawn('npx', ['--yes', 'cloudflared', 'tunnel', '--url', `http://localhost:${PORT}`], {
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let urlDetected = false;
+        const onData = (data) => {
+          const text = data.toString();
+          const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
+          if (match && !urlDetected) {
+            urlDetected = true;
+            const tunnelUrl = match[0];
+            ecpayService.setBaseUrl(tunnelUrl);
+            console.log('\n' + '='.repeat(70));
+            console.log(`✨ [Cloudflare Tunnel] 公網安全通道已同步啟動！`);
+            console.log(`🌐 穿透網址:       ${tunnelUrl}`);
+            console.log(`🔌 公網 API:       ${tunnelUrl}/api/jit`);
+            console.log(`🤖 公網 MCP (SSE): ${tunnelUrl}/sse`);
+            console.log(`💳 綠界公網回呼:   ${tunnelUrl}/api/ecpay/callback`);
+            console.log(`📱 支付跳轉中繼:   ${tunnelUrl}/api/pay/:orderId`);
+            console.log('='.repeat(70) + '\n');
+          }
+        };
+        cp.stdout.on('data', onData);
+        cp.stderr.on('data', onData);
+        process.on('SIGINT', () => { cp.kill(); process.exit(0); });
+        process.on('SIGTERM', () => { cp.kill(); process.exit(0); });
+      });
+    }
   });
 }
 

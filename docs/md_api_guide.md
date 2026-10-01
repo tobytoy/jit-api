@@ -300,3 +300,104 @@ npx jit-api test
 * **Fast-Path 檢驗**：使用 `samplePayload` 驗證 Phase 3 快速路徑與邏輯正確性。
 * **語意意圖檢驗**：使用 `sampleSemantic` 驗證 Phase 1 自然語言意圖辨識與欄位正規化。
 * **彩色報表產出**：即時輸出每支規格的測試狀態、耗時與斷言統計。
+
+---
+
+## 10. v1.4.5 嵌入式資料庫與後端資料處理 (Data & Analytics Engine)
+
+JIT-API 支援將傳統需要工程師刻寫的資料庫操作與資料管線，直接以宣告式語法寫入 Markdown：
+
+### 10.1 宣告式儲存與資料管線 (`## Store` & `## Pipeline`)
+```markdown
+# API: sales_analytics
+Stage: prod
+
+## Store: analytics
+- Provider: local_duckdb
+
+## Pipeline
+- Source: orders
+- Aggregate: sum(amount) as total_revenue
+- GroupBy: category
+- CacheTtlMs: 60000
+
+## Logic
+```javascript
+// context.db 注入嵌入式 DuckDB 0ms 向量計算引擎，完全杜絕 LLM 算術幻覺
+const res = await context.db.query(
+  "SELECT category, SUM(amount) as revenue, COUNT(*) as count FROM orders WHERE amount >= ? GROUP BY category",
+  [context.body.minAmount || 0]
+);
+return { status: "OK", data: res.rows };
+```
+```
+
+### 10.2 DBX Universal MCP Sidecar (`context.dbx`)
+支援透過 Model Context Protocol 連接外部 100+ 企業資料庫（Snowflake、BigQuery、Postgres、MySQL 等），免寫各類資料庫驅動連接池，沙盒中直接調用 `context.dbx.query(...)`。
+
+---
+
+## 11. v1.4.5 綠界科技 (ECPay) 金流支付與收單 (Payment Gateway)
+
+JIT-API 官方內建綠界金流外掛，讓數位產品或微服務只需一支 Markdown 規格即可完成全功能收款：
+
+### 11.1 建立付款訂單與自動產出 QR Code
+```markdown
+# API: checkout
+Stage: prod
+
+## Logic
+```javascript
+// 透過 context.ecpay 生成符合 .NET URL-Encoding 規格的 CheckMacValue 與跳轉 Form
+const order = await context.ecpay.createOrder({
+  TotalAmount: context.body.amount || 500,
+  ItemName: context.body.itemName || "VIP 訂閱",
+  ChoosePayment: "Credit", // 支援 Credit, ATM, CVS, ALL
+  ReturnURL: "/api/ecpay/callback"
+});
+
+return {
+  success: true,
+  orderId: order.orderId,
+  paymentUrl: order.paymentUrl,      // 託管收銀中繼站網址 (/api/pay/:orderId)
+  qrCodeSvg: order.qrCodeSvg,        // 向量 SVG QR Code (可直接於前端渲染)
+  qrCodeDataUrl: order.qrCodeDataUrl // Base64 PNG QR Code
+};
+```
+```
+
+### 11.2 付款回呼驗簽 (ReturnURL Webhook) 與 DuckDB 交易入庫
+```markdown
+# API: ecpay_callback
+Stage: prod
+
+## Store: analytics
+- Provider: local_duckdb
+
+## Logic
+```javascript
+// 1. 自動反向驗簽 CheckMacValue，防止假造付款通知
+const verify = context.ecpay.verifyCallback(context.body);
+if (!verify.valid) {
+  return { status: 400, headers: { 'Content-Type': 'text/plain' }, body: '0|CheckMacValue Error' };
+}
+
+// 2. 付款成功即時寫入 DuckDB
+if (verify.isSuccess) {
+  await context.db.execute(
+    "INSERT INTO payment_records (order_id, trade_no, amount, status) VALUES (?, ?, ?, 'PAID')",
+    [verify.orderId, verify.tradeNo, verify.amount]
+  );
+}
+
+// 3. 綠界規定必須回覆 1|OK
+return { status: 200, headers: { 'Content-Type': 'text/plain' }, body: '1|OK' };
+```
+```
+
+### 11.3 本機即時測試 Webhook：搭配 Cloudflare Tunnel
+在本地開發時，執行：
+```bash
+npx jit-api dev --tunnel
+```
+系統會自動在終端印出公網 HTTPS 穿透網址，並同步配接 `ReturnURL`，綠界測試環境的付款 Webhook 回呼可直接穿透至本機，且終端機直接印出 ASCII QR Code 供手機相機即時掃描測試！

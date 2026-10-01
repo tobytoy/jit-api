@@ -112,7 +112,7 @@ export class PluginManager {
   /**
    * Register a plugin
    */
-  public register(plugin: JITPlugin): this {
+  public register(plugin: JITPlugin, context?: JITPluginContext): this {
     if (this.plugins.has(plugin.name)) {
       console.warn(`[PluginManager] Overwriting existing plugin: ${plugin.name}`);
     }
@@ -121,6 +121,19 @@ export class PluginManager {
     // If plugin provides a storage adapter, adopt it
     if (plugin.storageAdapter) {
       this.storageAdapter = plugin.storageAdapter;
+    }
+
+    if (context && plugin.onInit) {
+      try {
+        const initResult = plugin.onInit({ ...context, storage: this.storageAdapter });
+        if (initResult && typeof (initResult as any).catch === 'function') {
+          (initResult as any).catch((err: any) => {
+            console.error(`[PluginManager] Error in plugin.onInit for ${plugin.name}:`, err);
+          });
+        }
+      } catch (err: any) {
+        console.error(`[PluginManager] Error in plugin.onInit for ${plugin.name}:`, err);
+      }
     }
     return this;
   }

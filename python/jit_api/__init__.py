@@ -20,6 +20,17 @@ from .router import TypeSafeRouter
 from .observer import SchemaObserver
 from .fallback_handler import FallbackHandler
 from .codegen import CodegenEngine
+from .data import (
+    DataEngine,
+    LocalDuckDBAdapter,
+    DBXMCPAdapter,
+    QueryResult,
+    ExecuteResult,
+)
+from .analytics import Dataset
+from .visual import Chart
+from .share import Publisher
+from . import ui
 
 __all__ = [
     "JITEngine",
@@ -29,6 +40,15 @@ __all__ = [
     "SchemaObserver",
     "FallbackHandler",
     "CodegenEngine",
+    "DataEngine",
+    "LocalDuckDBAdapter",
+    "DBXMCPAdapter",
+    "QueryResult",
+    "ExecuteResult",
+    "Dataset",
+    "Chart",
+    "Publisher",
+    "ui",
     "IRField",
     "IRSchema",
     "JITExecutionResult",

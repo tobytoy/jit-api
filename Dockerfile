@@ -22,6 +22,9 @@ RUN npm install
 
 # Copy source code and assets
 COPY core/ ./core/
+COPY plugins/ ./plugins/
+COPY data/ ./data/
+COPY adapters/ ./adapters/
 COPY blocks/ ./blocks/
 COPY compiler/ ./compiler/
 COPY public/ ./public/
@@ -32,6 +35,12 @@ COPY index.ts ./
 
 # Build TypeScript to dist/
 RUN npm run build && chmod +x bin/cli.js
+
+# Create non-root user for security (M-5)
+RUN groupadd -r jitapi && useradd -r -g jitapi -d /app -s /bin/bash jitapi \
+    && chown -R jitapi:jitapi /app
+
+USER jitapi
 
 # Expose Web Studio port
 EXPOSE 3005

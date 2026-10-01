@@ -118,12 +118,27 @@ export class MDLoader {
   }
 
   /**
+   * Validate and sanitize spec filename to prevent path traversal
+   */
+  private sanitizeFilename(filename: string): string {
+    if (!filename || typeof filename !== 'string') {
+      throw new Error('Invalid spec filename: empty or not a string');
+    }
+    const sanitized = path.basename(filename);
+    if (sanitized !== filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      throw new Error(`Invalid spec filename (path traversal detected): ${filename}`);
+    }
+    return sanitized;
+  }
+
+  /**
    * Read raw content of a specific spec file
    */
   public getSpecContent(filename: string): string {
-    const fullPath = path.join(this.specsDir, filename);
+    const safeName = this.sanitizeFilename(filename);
+    const fullPath = path.join(this.specsDir, safeName);
     if (!fs.existsSync(fullPath)) {
-      throw new Error(`Spec file not found: ${filename}`);
+      throw new Error(`Spec file not found: ${safeName}`);
     }
     return fs.readFileSync(fullPath, 'utf-8');
   }
@@ -135,7 +150,8 @@ export class MDLoader {
     if (!filename.endsWith('.md')) {
       filename = `${filename}.api.md`;
     }
-    const fullPath = path.join(this.specsDir, filename);
+    const safeName = this.sanitizeFilename(filename);
+    const fullPath = path.join(this.specsDir, safeName);
     fs.writeFileSync(fullPath, content, 'utf-8');
   }
 

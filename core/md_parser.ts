@@ -14,6 +14,8 @@ import {
   NotifyDefinition,
   PromptArgument,
   CompositionDefinition,
+  StoreDefinition,
+  PipelineDefinition,
 } from './types.js';
 
 export interface ParsedMDField {
@@ -51,6 +53,8 @@ export interface ParsedMDSpec {
   rateLimit?: RateLimitDefinition;
   notify?: NotifyDefinition;
   composition?: CompositionDefinition;
+  store?: StoreDefinition;
+  pipeline?: PipelineDefinition;
   synonymMap?: Record<string, string>;
   description: string;
   intentCriteria: string;
@@ -62,6 +66,45 @@ export interface ParsedMDSpec {
   mockResponse?: any;
   samplePayload?: Record<string, any>;
   sampleSemantic?: string;
+}
+
+/**
+ * Hardened sandbox proxy that blocks prototype climbing and host escape (__proto__, constructor, prototype)
+ */
+function createSafeSandboxProxy(obj: any): any {
+  if (obj === null || (typeof obj !== 'object' && typeof obj !== 'function')) {
+    return obj;
+  }
+  return new Proxy(obj, {
+    get(target, prop, receiver) {
+      if (
+        prop === '__proto__' ||
+        prop === 'constructor' ||
+        prop === 'prototype' ||
+        prop === 'valueOf'
+      ) {
+        return undefined;
+      }
+      const val = Reflect.get(target, prop, receiver);
+      if (typeof val === 'function') {
+        const boundFn = (...args: any[]) => {
+          return val.apply(target, args);
+        };
+        Object.setPrototypeOf(boundFn, null);
+        return boundFn;
+      }
+      if (typeof val === 'object' && val !== null) {
+        return createSafeSandboxProxy(val);
+      }
+      return val;
+    },
+    getPrototypeOf() {
+      return null;
+    },
+    setPrototypeOf() {
+      return false;
+    },
+  });
 }
 
 export class MDParser {
@@ -123,6 +166,8 @@ export class MDParser {
     let rateLimit: RateLimitDefinition | undefined;
     let notify: NotifyDefinition | undefined;
     let composition: CompositionDefinition | undefined;
+    let store: StoreDefinition | undefined;
+    let pipeline: PipelineDefinition | undefined;
     const synonymMap: Record<string, string> = {};
     let description = '';
     let intentCriteria = '';
@@ -182,8 +227,8 @@ export class MDParser {
       }
 
       // Metadata before sections or in header
-      // 1. # API: {name}
-      const apiHeaderMatch = trimmed.match(/^#\s+(?:API:\s*)?([a-zA-Z0-9_\-]+)/i);
+      // 1. # API: {name} or # {name}
+      const apiHeaderMatch = trimmed.match(/^#\s+API:\s*([a-zA-Z0-9_\-\/]+)/i) || trimmed.match(/^#\s+([a-zA-Z0-9_\-\/]+)/i);
       if (apiHeaderMatch && !currentSection) {
         route = apiHeaderMatch[1];
         continue;
@@ -210,10 +255,20 @@ export class MDParser {
         continue;
       }
 
-      // 5. Section headers: ## Intent, ## Fields, ## Logic, ## Mock, ## Sample, ## Test, ## Auth
-      const sectionMatch = trimmed.match(/^##\s+([a-zA-Z0-9_\s]+)/i);
+      // 5. Section headers: ## Intent, ## Fields, ## Logic, ## Mock, ## Sample, ## Test, ## Auth, ## Store, ## Pipeline
+      const sectionMatch = trimmed.match(/^##\s+([a-zA-Z0-9_\s]+?)(?:\s*:\s*(.+))?$/i);
       if (sectionMatch) {
         currentSection = sectionMatch[1].trim().toLowerCase();
+        const sectionArg = sectionMatch[2]?.trim();
+        if (currentSection === 'store') {
+          store = store || { name: 'analytics' };
+          if (sectionArg) {
+            const providerMatch = sectionArg.match(/(?:provider\s*:\s*([a-zA-Z0-9_\-]+))/i);
+            const nameMatch = sectionArg.match(/^([a-zA-Z0-9_\-]+)/);
+            if (nameMatch) store.name = nameMatch[1];
+            if (providerMatch) store.provider = providerMatch[1] as any;
+          }
+        }
         currentField = null;
         continue;
       }
@@ -404,6 +459,57 @@ export class MDParser {
         }
       }
 
+      // Handle Section: Store
+      if (currentSection === 'store') {
+        if (!store) store = { name: 'analytics' };
+        const nameMatch = trimmed.match(/^(?:-\s*)?name\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (nameMatch) {
+          store.name = nameMatch[1].trim();
+          continue;
+        }
+        const providerMatch = trimmed.match(/^(?:-\s*)?provider\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (providerMatch) {
+          store.provider = providerMatch[1].trim().toLowerCase() as any;
+          continue;
+        }
+        const targetMatch = trimmed.match(/^(?:-\s*)?target\s*:\s*(.+)/i);
+        if (targetMatch) {
+          store.target = targetMatch[1].trim();
+          continue;
+        }
+        const tunnelMatch = trimmed.match(/^(?:-\s*)?tunnel\s*:\s*(.+)/i);
+        if (tunnelMatch) {
+          store.tunnel = tunnelMatch[1].trim();
+          continue;
+        }
+      }
+
+      // Handle Section: Pipeline
+      if (currentSection === 'pipeline') {
+        if (trimmed.startsWith('```')) continue;
+        if (!pipeline) pipeline = {};
+        const srcMatch = trimmed.match(/^(?:-\s*)?source\s*:\s*([a-zA-Z0-9_\-]+)/i);
+        if (srcMatch) {
+          pipeline.source = srcMatch[1].trim();
+          continue;
+        }
+        const aggMatch = trimmed.match(/^(?:-\s*)?aggregate\s*:\s*(.+)/i);
+        if (aggMatch) {
+          pipeline.aggregate = aggMatch[1].trim().replace(/^["']|["']$/g, '');
+          continue;
+        }
+        const transformMatch = trimmed.match(/^(?:-\s*)?transform\s*:\s*(.+)/i);
+        if (transformMatch) {
+          pipeline.transform = transformMatch[1].trim();
+          continue;
+        }
+        const ttlMatch = trimmed.match(/^(?:-\s*)?cachettl\s*:\s*(\d+)/i);
+        if (ttlMatch) {
+          pipeline.cacheTtlMs = parseInt(ttlMatch[1], 10);
+          continue;
+        }
+      }
+
       // Handle Section: Intent
       if (currentSection === 'intent') {
         if (!intentCriteria) {
@@ -535,6 +641,8 @@ export class MDParser {
       rateLimit,
       notify,
       composition,
+      store,
+      pipeline,
       synonymMap: Object.keys(synonymMap).length > 0 ? synonymMap : undefined,
       description: description || `Handler for ${route}`,
       intentCriteria: intentCriteria || description || route,
@@ -619,6 +727,30 @@ export class MDParser {
           sandbox.upstreamFetch = safeFetch;
         }
 
+        // Database contexts (Local DuckDB & DBX) with hardened sandbox proxy
+        if (ctx.db) {
+          const safeDb = createSafeSandboxProxy(ctx.db);
+          sandbox.db = safeDb;
+          if (sandbox.ctx) sandbox.ctx.db = safeDb;
+        }
+        if (ctx.dbx) {
+          const safeDbx = createSafeSandboxProxy(ctx.dbx);
+          sandbox.dbx = safeDbx;
+          if (sandbox.ctx) sandbox.ctx.dbx = safeDbx;
+        }
+
+        // ECPay (綠界金流) Payment Gateway with hardened sandbox proxy
+        if (ctx.ecpay) {
+          const safeEcpay = createSafeSandboxProxy(ctx.ecpay);
+          sandbox.ecpay = safeEcpay;
+          if (sandbox.ctx) sandbox.ctx.ecpay = safeEcpay;
+        }
+
+        if (sandbox.ctx) {
+          sandbox.ctx.body = sandbox.payload;
+        }
+        sandbox.context = sandbox.ctx;
+
         // Explicitly block dangerous globals
         sandbox.process = undefined;
         sandbox.require = undefined;
@@ -700,6 +832,34 @@ export class MDParser {
           payload,
         };
       };
+    } else if (spec.pipeline && spec.pipeline.aggregate) {
+      handler = async (payload: any, ctx: JITRequestContext) => {
+        const db = ctx.db || ctx.dbx;
+        if (!db) {
+          throw new Error(`[Pipeline Error] ${spec.route}: No database context configured to execute pipeline`);
+        }
+        let sql = spec.pipeline!.aggregate!;
+        const params: any[] = [];
+        if (payload && typeof payload === 'object') {
+          sql = sql.replace(/:([a-zA-Z_]\w*)\b|\{([a-zA-Z_]\w*)\}/g, (match, k1, k2) => {
+            const key = k1 || k2;
+            if (Object.prototype.hasOwnProperty.call(payload, key) && payload[key] !== undefined) {
+              params.push(payload[key]);
+              return '?';
+            }
+            return match;
+          });
+        }
+        const queryRes = await db.query(sql, params);
+        return {
+          status: 'SUCCESS',
+          route: spec.route,
+          pipeline: spec.pipeline?.name || spec.route,
+          rows: queryRes.rows,
+          rowCount: queryRes.rowCount,
+          durationMs: queryRes.durationMs,
+        };
+      };
     } else if (spec.mockResponse !== undefined) {
       handler = async (payload: any, ctx: JITRequestContext) => {
         return typeof spec.mockResponse === 'object' && spec.mockResponse !== null
@@ -727,6 +887,8 @@ export class MDParser {
       rateLimit: spec.rateLimit,
       notify: spec.notify,
       composition: spec.composition,
+      store: spec.store,
+      pipeline: spec.pipeline,
       synonymMap: spec.synonymMap,
       description: spec.description,
       intentCriteria: spec.intentCriteria,

@@ -1,6 +1,6 @@
 {
   "name": "jit-api",
-  "version": "1.4.4",
+  "version": "1.4.6",
   "description": "Just-In-Time Protocol Synthesis Framework: Dynamic-to-Static API Generation using TypeSafe (Jev)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,7 +11,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./plugins": "./dist/plugins/index.js",
-    "./adapters": "./dist/adapters/index.js"
+    "./adapters": "./dist/adapters/index.js",
+    "./data": "./dist/data/index.js"
   },
   "files": [
     "dist",
@@ -51,17 +52,22 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/ws": "^8.18.1",
     "@typesafe-ai/sdk": "^0.6.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "helmet": "^8.3.0",
     "node-pty": "^1.1.0",
+    "qrcode": "^1.5.4",
     "ws": "^8.21.3",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.9",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.7"

@@ -4,6 +4,89 @@
 
 ---
 
+## 🛡️ [v1.4.6] - 2026-10-01
+
+### 🌟 資安大防禦：14 項資安漏洞全面修復與深度硬化 (Security Audit Hardening Release)
+
+依據全專案原始碼資安審計報告（Audit Report），本版本全面修復 2 項 Critical、4 項 High、5 項 Medium 與 3 項 Low 資安問題：
+
+---
+
+### 1. 🔴 Critical 級別修復
+* **C-1: Pipeline Aggregate Handler SQL 注入防護 ([`core/md_parser.ts`](../core/md_parser.ts))**：
+  * 全面將 SQL 字串拼接重構為**參數化查詢 (Parameterized Query)**。
+  * 自動將 `:param` 與 `{param}` 轉換為 `?` 佔位符，並將數值放入 `params` 陣列傳入 DuckDB，徹底杜絕 SQL Injection。
+* **C-2: 規格管理 API 路徑穿越 (Path Traversal) 防護 ([`core/md_loader.ts`](../core/md_loader.ts))**：
+  * 在 `getSpecContent` 與 `saveSpec` 加入 `sanitizeFilename()` 嚴格校驗，禁止包含 `..`、`/`、`\\` 等路徑遍歷字元，防止任意檔案讀寫。
+
+---
+
+### 2. 🟠 High 級別修復
+* **H-1: VM Sandbox 原型鏈逃逸深度硬化 ([`core/md_parser.ts`](../core/md_parser.ts))**：
+  * 新增 `createSafeSandboxProxy`，對注入 sandbox 的 `db`、`dbx`、`ecpay` 等宿主物件進行遞迴代理封裝。
+  * 攔截並阻斷 `__proto__`、`constructor`、`prototype`、`valueOf` 存取，且 `getPrototypeOf` 強制回傳 `null`，完全杜絕透過宿主物件原型鏈逃逸 sandbox 的風險。
+* **H-2: 全面啟用 HTTP 安全標頭 ([`bin/cli.js`](../bin/cli.js))**：
+  * 導入 `helmet` 中間件，自動設定 `X-Content-Type-Options: nosniff`、`X-Frame-Options`、HSTS 與細緻化 CSP (Content Security Policy)，相容 Google Fonts、WebSocket 與前端 Studio。
+* **H-3: Web Terminal 身份認證強制保護 ([`bin/cli.js`](../bin/cli.js))**：
+  * 為 WebSocket `/ws/terminal` 終端機連線掛載 `authValidator`。
+  * 偵測到開啟 `--tunnel` 穿透但未設定 `MASTER_PASSWORD` 時，**自動生成隨機一次性高強度 Master 密碼**並在終端機提示，未授權者無法獲取 shell。
+  * 前端 `public/app.js` 同步支援在連線時傳遞 Token，並在登入/登出時自動重連終端機。
+* **H-4: ECPay Auto-Submit HTML XSS 注入防護 ([`plugins/payment_ecpay.ts`](../plugins/payment_ecpay.ts))**：
+  * 實作 `escapeHtml()` 函式，對 ECPay 表單中所有參數 key/value、標題與 actionUrl 進行 HTML entity 編碼，杜絕 XSS 注入。
+
+---
+
+### 3. 🟡 Medium & 🔵 Low 級別修復
+* **M-1: MasterAuthManager 計時攻擊防護 ([`core/master_auth.ts`](../core/master_auth.ts))**：
+  * `safeCompare` 先對兩端密碼進行 SHA-256 雜湊再進行 `timingSafeEqual`，密碼長度不同時不再提前退出，徹底防範基於反應時間的長度推算。
+* **M-2: Relay Order 記憶體 DoS 防護 ([`plugins/payment_ecpay.ts`](../plugins/payment_ecpay.ts))**：
+  * 為 `relayOrders` 設定容量上限 (`MAX_RELAY_ORDERS = 10000`) 與過期清理機制，防止大量下單消耗過量記憶體。
+* **M-3: DuckDB SQL 識別符驗證 ([`data/local_duckdb.ts`](../data/local_duckdb.ts))**：
+  * 新增 `sanitizeIdentifier()`，對 `insertRows` 與 `aggregate` 的表名與欄位名進行嚴格正則驗證，並在 `aggregate` 中改採參數化 `WHERE`。
+* **M-4: ECPay 404 頁面反射型 XSS 修復 ([`bin/cli.js`](../bin/cli.js))**：
+  * 對 `orderId` 進行 HTML 編碼後再輸出至 404 頁面。
+* **M-5: Dockerfile 非特權使用者 ([`Dockerfile`](../Dockerfile))**：
+  * 建立並切換至 `jitapi` 非 root 使用者，並補齊 `plugins/`、`data/`、`adapters/` 等目錄拷貝。
+* **L-1~L-3: CORS 跨域支援、管理端點 Master Auth 保護、綠界測試憑證資安宣告**。
+
+---
+
+## 🚀 [v1.4.5] - 2026-10-01
+
+### 🌟 重大躍進：綠界金流外掛 (ECPay Gateway)、託管式收銀中繼 (Hosted Relay)、多格式 QR Code 生成、Cloudflare Tunnel 穿透 CLI 與 DuckDB 交易入庫
+
+本版本大幅擴展 JIT-API 在數位產品商業化變現與公網測試分享的核心能力：
+
+---
+
+### 1. 💳 綠界科技 (ECPay) 金流支付外掛 ([`plugins/payment_ecpay.ts`](../plugins/payment_ecpay.ts))
+* **開箱即用 Sandbox 測試特店**：預設內建綠界官方特店金鑰（特店編號：`2000132`），零申請即可在本地即時測試虛擬刷卡與付款流程。
+* **100% 規格級 CheckMacValue 演算法**：
+  * 嚴格相容綠界 .NET URL-Encoding 轉換規則（空白轉 `+`、特定字元 `%21`, `%2a`, `%28`, `%29`, `%2d`, `%5f`, `%2e`, `%7e` 原樣還原、小寫轉大寫）。
+  * 支援 SHA-256 雙向壓碼與驗簽，徹底防範 Webhook 假造付款攻擊。
+* **全方位支付工具鏈**：
+  * `createOrder(options)`：建立訂單並組裝自動提交的跳轉 Form。
+  * `verifyCallback(body)`：驗證綠界 `ReturnURL` 回呼簽章，解析交易序號、付款日期與金額。
+  * `queryTradeInfo(tradeNo)`：主動向綠界查詢訂單狀態。
+
+---
+
+### 2. 📱 託管式收銀中繼站 (Hosted Checkout Relay) 與多格式 QR Code
+* **支付短網址中繼 (`/api/pay/:orderId`)**：
+  * 開發者只需回傳 `paymentUrl`，手機或瀏覽器點擊即可在 0.1 秒內無縫導向綠界官方收銀台，支援信用卡、LINE Pay、ATM 虛擬帳號與超商代碼。
+* **多格式 QR Code 自動生成**：
+  * 支援向量 `qrCodeSvg`（適合前端無損縮放與暗黑模式渲染）。
+  * 支援 `qrCodeDataUrl`（Base64 PNG，適合 `<img>` 標籤與 Email 內嵌）。
+  * 支援 `qrCodeTerminal`（ASCII 終端字元，終端機下單時手機直接掃描螢幕即可付款！）。
+
+---
+
+### 3. 🌐 Cloudflare Tunnel 公網安全穿透 CLI 與無縫聯動
+* **單一指令公網穿透**：`npx jit-api tunnel [port|ui]` 隨開即用，無需註冊或設定固定 IP。
+* **服務同步穿透**：`npx jit-api dev --tunnel` 自動建立 Cloudflare Tunnel，並同步將 `ReturnURL` 與 `paymentUrl` 配接至公網網址，本地即刻接收綠界付款 Webhook！
+
+---
+
 ## 🚀 [v1.4.4] - 2026-09-30
 
 ### 🌟 重大躍進：全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器

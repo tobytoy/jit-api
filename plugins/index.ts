@@ -41,3 +41,9 @@ export * from './store_cloudflare_d1.js';
 
 // Geo-Spatial & Grid Perception Cache Plugin
 export * from './plugin_geo_spatial.js';
+
+// Enterprise Database & Sidecar MCP (DBX)
+export * from './data_dbx.js';
+
+// Payment Gateways & E-Commerce
+export * from './payment_ecpay.js';

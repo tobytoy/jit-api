@@ -102,6 +102,17 @@
 * **Jev 重要度評分 (P0~P3) 與分流**：自動計算情境重要度，遇到破壞性變更鎖定為每週例會討論 (`DISCUSS_WEEKLY_MEETING`)。
 * **第三方 API 加值轉接與頻率限制**：SSRF 內網攻擊攔截、60 秒記憶體快取與多租戶 API Key Sliding-Window 429 限速。
 
+### 15. 💳 [綠界金流 (ECPay) 支付收單與託管收銀中繼指南](./md_api_guide.md#11-v145-綠界科技-ecpay-金流支付與收單-payment-gateway)
+* **開箱即用沙盒特店**：預設使用特店 `2000132`，免申請直接進行虛擬信用卡刷卡與付款測試。
+* **自動壓碼與驗簽**：100% 規格級 .NET URL-Encoding SHA-256 CheckMacValue 演算法與反向防偽。
+* **託管收銀中繼與三合一 QR Code**：提供 `/api/pay/:orderId` 支付短網址，自動生成向量 SVG、Base64 PNG 與 CLI 終端機 ASCII QR Code。
+* **Cloudflare Tunnel 本地即時 Webhook**：`npx jit-api dev --tunnel` 自動建立公網穿透，即時接收綠界回呼並寫入 DuckDB！
+
+### 16. 📊 [嵌入式 DuckDB 資料分析與 DBX MCP 企業資料庫整合指南](./md_api_guide.md#10-v145-嵌入式資料庫與後端資料處理-data--analytics-engine)
+* **嵌入式向量化 SQL 運算**：Markdown 支援 `## Store` (Local DuckDB) 與 `## Pipeline`，0ms 向量 SQL 運算消除 LLM 算術幻覺。
+* **DBX MCP Universal Sidecar**：透過 Model Context Protocol 連接外部 100+ 企業資料庫（Snowflake、BigQuery、Postgres 等）。
+* **Chat-First 資料科學與 Streamlit UI**：Python 原生支援 `Dataset`、`Chart`（暗黑 ECharts）、Streamlit 互動儀表板與單檔 HTML 報表一鍵匯出。
+
 
 ---
 

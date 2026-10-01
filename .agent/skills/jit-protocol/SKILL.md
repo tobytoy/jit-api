@@ -152,6 +152,49 @@ Description: Evaluate order fraud and credit risk with structured indicators
 ## Template
 - user: 請針對訂單 {orderId}（風險分數: {userRiskScore}）進行詐欺防護與風險評估。
 - assistant: 我將依據歷史風控模型與行為特徵進行即時核對。
+#### 2.4 嵌入式資料庫與資料處理管線 (`## Store` & `## Pipeline`)
+```markdown
+# API: calculate_revenue
+Stage: prod
+
+## Store: analytics
+- Provider: local_duckdb
+
+## Pipeline
+- Source: sales_records
+- Aggregate: sum(amount) as total_revenue
+- GroupBy: category
+
+## Logic
+```javascript
+// context.db 提供零延遲向量 SQL 引擎 (DuckDB)，徹底告別 LLM 算術幻覺
+const res = await context.db.query("SELECT category, SUM(amount) as revenue FROM sales_records GROUP BY category");
+return { status: "OK", data: res.rows };
+```
+```
+
+#### 2.5 綠界金流 (ECPay) 整合範例
+```markdown
+# API: ecpay_checkout
+Stage: prod
+
+## Logic
+```javascript
+// 透過 context.ecpay 生成防偽 CheckMacValue、跳轉表單與支付 QR Code
+const order = await context.ecpay.createOrder({
+  TotalAmount: context.body.amount || 100,
+  ItemName: context.body.itemName || "VIP 服務",
+  ChoosePayment: "Credit",
+  ReturnURL: "/api/ecpay/callback"
+});
+
+return {
+  orderId: order.orderId,
+  paymentUrl: order.paymentUrl,      // 託管式收銀短網址 (/api/pay/:orderId)
+  qrCodeSvg: order.qrCodeSvg,        // 向量 SVG QR Code (可直接嵌入網頁)
+  qrCodeDataUrl: order.qrCodeDataUrl // Base64 PNG QR Code
+};
+```
 ```
 
 ---
@@ -161,7 +204,11 @@ Description: Evaluate order fraud and credit risk with structured indicators
 ```bash
 # 開發與生產
 npx jit-api dev                  # 啟動開發控制台 (Web Studio + Terminal + 熱重載, Port: 3005)
+npx jit-api dev --tunnel         # 啟動時同步開啟 Cloudflare Tunnel 公網安全通道並自動配接 Webhook
 npx jit-api prod                 # 啟動生產網關 (物理隔離、關閉終端、高效 Fast-Path, Port: 3000)
+
+# 公網分享與測試 (Cloudflare Tunnel)
+npx jit-api tunnel [port|ui]     # 隨開即用 Cloudflare Tunnel (3005: API+MCP / ui: Streamlit 8501)
 
 # 測試、審計與發布安全
 npx jit-api test                 # 自動化執行 specs/ 中所有 ## Sample 測試範例
@@ -234,7 +281,25 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
 - `plugin-geo-spatial` (`GeoSpatialPlugin` / `createGeoSpatialPlugin`)：
   - 純 JS 零 C++ 依賴空間計算工具，相容 Node.js、Cloudflare Workers、Deno 與 Bun。
   - 支援標準 Base32 **Geohash 編解碼** (`encodeGeohash`)、空間經緯度離散網格歸一化 (`getSpatialGridId`)、經緯度精度吸附 (`snapCoordinate`) 與球面大圓距離計算 (`haversineDistanceMeters`)。
-  - 於 `context.geo` 自動注入空間計算公用函式供沙盒邏輯及下游調用。
+### 6. 商業金流與收單閘道 (Payment Gateways)
+- `payment-ecpay` (`createECPayPlugin` / `ECPayService`)：
+  - 台灣綠界科技 (ECPay) 完整金流串接，支援信用卡、LINE Pay、ATM 虛擬帳號與超商代碼。
+  - 內建官方 Stage 測試特店（特店編號：`2000132`），零申請即開即用。
+  - 100% 規格級 .NET URL-Encoding SHA-256 CheckMacValue 壓碼與防偽簽章驗證。
+  - 內建託管收銀中繼站 (`/api/pay/:orderId`) 與多格式 QR Code（向量 SVG、Base64 PNG、終端 ASCII）。
+  - 沙盒安全注入 `context.ecpay`，可直接與 DuckDB 交易入庫無縫聯動。
+
+### 7. 後端資料處理與資料科學套件 (Data & Analytics Engine)
+- `data/` (`DataEngine` / `LocalDuckDBAdapter`)：
+  - 嵌入式 DuckDB 0ms 向量運算引擎，執行高效 Group By、彙總與多表關聯，徹底消除 LLM 算術幻覺。
+  - 支援 `context.db.query()`、`context.db.execute()` 與 `context.db.aggregate()`。
+- `data_dbx` (`DBXMCPAdapter` / `createDBXPlugin`)：
+  - 透過 Model Context Protocol (MCP) 連接 DBX Universal Driver，支援 100+ 企業資料庫（Snowflake, BigQuery, Postgres, MySQL, Oracle, Databricks）作為 Sidecar。
+- `python/jit_api/` Python 資料科學套件：
+  - `Dataset`：高速記憶體彙總、`describe()`、`cohort()` 與 Pandas / Polars 轉換。
+  - `Chart`：生成現代響應式暗黑 ECharts 獨立 HTML。
+  - `ui`：Streamlit 互動儀表板快速鷹架（`st_dataset_viewer`, `st_chart`）。
+  - `Publisher`：零伺服器一鍵分享單檔 HTML 報表。
 
 ---
 
@@ -244,6 +309,7 @@ npx jit-api init                 # 在當前目錄建立 specs/ 規格目錄與�
 
 | 版本 Tag | 發布日期 | 核心升級與解決痛點 | 關鍵新增模組 / 功能 |
 | :--- | :--- | :--- | :--- |
+| **`v1.4.5`** | 2026-10 | **綠界金流外掛 (ECPay Gateway)、託管式收銀中繼 (Hosted Relay)、多格式 QR Code 生成、Cloudflare Tunnel 穿透 CLI 與 DuckDB 交易入庫**<br>開箱即用綠界 Sandbox 測試特店 (2000132)；100% 規格級 .NET URL-Encoding SHA-256 CheckMacValue 壓碼與驗簽；託管收銀短網址中繼 (`/api/pay/:orderId`)；三合一 QR Code (SVG, Base64 PNG, 終端機 ASCII)；Cloudflare Tunnel 公網安全穿透 CLI (`npx jit-api tunnel [port|ui]`) 與 `--tunnel` 啟動參數；Markdown `context.ecpay` 與 DuckDB 交易紀錄自動入庫。 | `plugins/payment_ecpay.ts`<br>`bin/cli.js` (tunnel & relay)<br>`specs/ecpay_checkout.api.md`<br>`specs/ecpay_callback.api.md`<br>`data/` & `data_dbx.ts` |
 | **`v1.4.4`** | 2026-09 | **全方位 MCP 協定 (Resources & Prompts & 即時通知)、Cloudflare 邊緣儲存 (KV & D1)、地理空間感知 (Geo-Spatial)、宣告式上游彈性 (Circuit Breaker)、列舉同義詞自癒與規格組合編排器**<br>規格檔 `# Resource: <uri>` 與 `# Prompt: <name>` 自動解析；MCP 即時 SSE/Stdio 資源異動通知 (`broadcastResourceUpdated`) 與系統警報 (`broadcastAlert`)；Cloudflare Workers KV 與 D1 邊緣儲存外掛；純 JS 地理空間外掛 (Geohash、Haversine、網格分桶歸一化)；上游三態熔斷器 (`CLOSED`/`OPEN`/`HALF_OPEN`)、指數退避重試、URL 模板插值與保底 Mock；列舉同義詞口語別名自動自癒轉換 (`[同義詞: ...]`)；多規格平行宣告式聚合編排器 (`## Compose`)。 | `core/mcp_adapter.ts`<br>`plugins/store_cloudflare_kv.ts`<br>`plugins/store_cloudflare_d1.ts`<br>`plugins/plugin_geo_spatial.ts`<br>`core/upstream_client.ts`<br>`core/auto_repair.ts`<br>`core/md_parser.ts` (Compose & Synonyms) |
 | **`v1.4.3`** | 2026-09 | **企業級可觀測性、細粒度 RBAC、沙盒深度硬化與 Redis 防投毒 (Hardening)**<br>Prometheus `/metrics` 匯出端點 (P50/P90/P99 延遲直方圖)；OpenTelemetry W3C TraceContext 分散式追蹤；HS256/RS256 加密驗簽與 JTI 黑名單；Action 級別通配符 RBAC；Node.js VM 沙盒原型硬隔離 (Null-Prototype / Realm JSON Deserialization / 嚴格模式禁用 this) 與 SEC-006 混淆逃逸檢測；`SchemaStore` 與 `SignedStorageAdapter` 密碼學 HMAC-SHA256 簽名防止全叢集合約投毒 (Anti-Poisoning)。 | `plugins/observability_prometheus.ts`<br>`plugins/observability_opentelemetry.ts`<br>`plugins/auth_rbac_jwt.ts`<br>`core/md_parser.ts` (Harden Sandbox)<br>`plugins/guard_spec_linter.ts` (SEC-006 De-obfuscation)<br>`core/schema_store.ts`<br>`core/signed_storage.ts` |
 | **`v1.4.2`** | 2026-09 | **外掛生態擴充、試算表資料庫、靜態資安稽核**<br>Google Sheets 試算表資料庫 (No-Code CMS)；Notion / Upstash Redis 儲存；Discord / Telegram / Slack 全通路告警轉發；Firebase / Clerk 認證；Prompt Injection 阻斷與台灣個資脫敏；靜態資安 SAST 稽核 (`npx jit-api audit`)；Agent Master Guide。 | `plugins/store_googlesheets.ts`<br>`plugins/channel_*`<br>`plugins/guard_safety.ts`<br>`plugins/guard_spec_linter.ts`<br>`.agent/skills/jit-protocol/` |
